@@ -1,0 +1,650 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Iron Horse Hold-Up</title>
+<style>
+  html, body { height: 100%; margin: 0; background: #1a120c; overflow: hidden; }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; cursor: grab; }
+  canvas:active { cursor: grabbing; }
+  .vignette {
+    position: fixed; inset: 0; pointer-events: none;
+    background: radial-gradient(ellipse at 50% 45%, transparent 55%, rgba(26, 14, 6, 0.55) 100%);
+  }
+  .titles {
+    position: fixed; left: 0; right: 0; top: 4.5vh; text-align: center; pointer-events: none;
+    color: #F3E3C3; font-family: 'Iowan Old Style', 'Palatino', 'Palatino Linotype', Georgia, serif;
+    text-shadow: 0 1px 8px rgba(30, 12, 2, 0.8);
+  }
+  .titles .eyebrow { font-size: 11px; letter-spacing: 0.42em; opacity: 0.75; text-transform: uppercase; }
+  .titles h1 { margin: 10px 0 8px; font-size: clamp(22px, 3.6vw, 40px); font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; }
+  .titles .sub { font-size: 13px; font-style: italic; letter-spacing: 0.08em; opacity: 0.85; }
+  .rule { width: 120px; margin: 10px auto 0; border: 0; border-top: 1px solid rgba(243, 227, 195, 0.4); }
+  .hint {
+    position: fixed; right: 18px; bottom: 14px; pointer-events: none;
+    color: rgba(243, 227, 195, 0.55); font-family: Georgia, serif; font-style: italic; font-size: 12px;
+    letter-spacing: 0.06em; text-shadow: 0 1px 4px rgba(30, 12, 2, 0.8);
+  }
+  .fallback { color: #F3E3C3; font-family: Georgia, serif; padding: 40px; text-align: center; }
+</style>
+
+<canvas id="gl"></canvas>
+<div class="vignette"></div>
+<div class="titles">
+  <div class="eyebrow">A moving picture in three dimensions</div>
+  <h1>The Iron Horse Hold-Up</h1>
+  <div class="sub">Somewhere in the Territories &mdash; 1879</div>
+  <hr class="rule">
+</div>
+<div class="hint">drag to look around &middot; scroll to zoom</div>
+
+<script id="main">
+'use strict';
+(function () {
+
+var canvas = document.getElementById('gl');
+var gl = canvas.getContext('webgl', { antialias: true });
+if (!gl) {
+  document.body.innerHTML = '<div class="fallback"><h2>The Iron Horse Hold-Up</h2><p>This picture show needs WebGL, and your browser has declined to provide it.</p></div>';
+  return;
+}
+var RM = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+/* ---------------- small matrix kit (column-major) ---------------- */
+function T(x, y, z) { return [1,0,0,0, 0,1,0,0, 0,0,1,0, x,y,z,1]; }
+function RX(a) { var c = Math.cos(a), s = Math.sin(a); return [1,0,0,0, 0,c,s,0, 0,-s,c,0, 0,0,0,1]; }
+function RY(a) { var c = Math.cos(a), s = Math.sin(a); return [c,0,-s,0, 0,1,0,0, s,0,c,0, 0,0,0,1]; }
+function RZ(a) { var c = Math.cos(a), s = Math.sin(a); return [c,s,0,0, -s,c,0,0, 0,0,1,0, 0,0,0,1]; }
+function mul(a, b) {
+  var o = new Array(16);
+  for (var c = 0; c < 4; c++) for (var r = 0; r < 4; r++) {
+    o[c * 4 + r] = a[r] * b[c * 4] + a[4 + r] * b[c * 4 + 1] + a[8 + r] * b[c * 4 + 2] + a[12 + r] * b[c * 4 + 3];
+  }
+  return o;
+}
+function chain() { var m = arguments[0]; for (var i = 1; i < arguments.length; i++) m = mul(m, arguments[i]); return m; }
+function tp(m, x, y, z) { return [m[0]*x + m[4]*y + m[8]*z + m[12], m[1]*x + m[5]*y + m[9]*z + m[13], m[2]*x + m[6]*y + m[10]*z + m[14]]; }
+function td(m, x, y, z) { return [m[0]*x + m[4]*y + m[8]*z, m[1]*x + m[5]*y + m[9]*z, m[2]*x + m[6]*y + m[10]*z]; }
+function norm3(v) { var l = Math.hypot(v[0], v[1], v[2]) || 1; return [v[0]/l, v[1]/l, v[2]/l]; }
+function cross(a, b) { return [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]]; }
+function persp(fov, aspect, near, far) {
+  var f = 1 / Math.tan(fov / 2), nf = 1 / (near - far);
+  return [f/aspect,0,0,0, 0,f,0,0, 0,0,(far+near)*nf,-1, 0,0,2*far*near*nf,0];
+}
+function lookAt(eye, tgt, up) {
+  var z = norm3([eye[0]-tgt[0], eye[1]-tgt[1], eye[2]-tgt[2]]);
+  var x = norm3(cross(up, z)), y = cross(z, x);
+  return [x[0],y[0],z[0],0, x[1],y[1],z[1],0, x[2],y[2],z[2],0,
+          -(x[0]*eye[0]+x[1]*eye[1]+x[2]*eye[2]), -(y[0]*eye[0]+y[1]*eye[1]+y[2]*eye[2]), -(z[0]*eye[0]+z[1]*eye[1]+z[2]*eye[2]), 1];
+}
+function C(hex) { var n = parseInt(hex.slice(1), 16); return [(n>>16&255)/255, (n>>8&255)/255, (n&255)/255]; }
+
+/* ---------------- geometry buckets ---------------- */
+var FACES = [
+  [[ 1,0,0], [[1,-1,-1],[1,1,-1],[1,1,1],[1,-1,1]]],
+  [[-1,0,0], [[-1,-1,-1],[-1,-1,1],[-1,1,1],[-1,1,-1]]],
+  [[0, 1,0], [[-1,1,-1],[-1,1,1],[1,1,1],[1,1,-1]]],
+  [[0,-1,0], [[-1,-1,-1],[1,-1,-1],[1,-1,1],[-1,-1,1]]],
+  [[0,0, 1], [[-1,-1,1],[1,-1,1],[1,1,1],[-1,1,1]]],
+  [[0,0,-1], [[-1,-1,-1],[-1,1,-1],[1,1,-1],[1,-1,-1]]]
+];
+function Bucket(cap) { this.f = new Float32Array(cap); this.n = 0; }
+Bucket.prototype.vert = function (p, nl, r, g, b, a) {
+  var f = this.f, i = this.n * 10;
+  if (i + 10 > f.length) return;
+  f[i] = p[0]; f[i+1] = p[1]; f[i+2] = p[2];
+  f[i+3] = nl[0]; f[i+4] = nl[1]; f[i+5] = nl[2];
+  f[i+6] = r; f[i+7] = g; f[i+8] = b; f[i+9] = a;
+  this.n++;
+};
+Bucket.prototype.box = function (m, sx, sy, sz, col, a) {
+  a = a === undefined ? 1 : a;
+  var hx = sx/2, hy = sy/2, hz = sz/2;
+  for (var fI = 0; fI < 6; fI++) {
+    var nl = norm3(td(m, FACES[fI][0][0], FACES[fI][0][1], FACES[fI][0][2]));
+    var cs = FACES[fI][1], q = [];
+    for (var k = 0; k < 4; k++) q.push(tp(m, cs[k][0]*hx, cs[k][1]*hy, cs[k][2]*hz));
+    this.vert(q[0], nl, col[0], col[1], col[2], a); this.vert(q[1], nl, col[0], col[1], col[2], a); this.vert(q[2], nl, col[0], col[1], col[2], a);
+    this.vert(q[0], nl, col[0], col[1], col[2], a); this.vert(q[2], nl, col[0], col[1], col[2], a); this.vert(q[3], nl, col[0], col[1], col[2], a);
+  }
+};
+// cylinder along local X axis
+Bucket.prototype.cyl = function (m, r, len, seg, col) {
+  var h = len / 2, i, a0, a1, c0, s0, c1, s1;
+  for (i = 0; i < seg; i++) {
+    a0 = i / seg * Math.PI * 2; a1 = (i + 1) / seg * Math.PI * 2;
+    c0 = Math.cos(a0); s0 = Math.sin(a0); c1 = Math.cos(a1); s1 = Math.sin(a1);
+    var n0 = norm3(td(m, 0, c0, s0)), n1 = norm3(td(m, 0, c1, s1));
+    var p00 = tp(m, -h, c0*r, s0*r), p01 = tp(m, h, c0*r, s0*r);
+    var p10 = tp(m, -h, c1*r, s1*r), p11 = tp(m, h, c1*r, s1*r);
+    this.vert(p00, n0, col[0], col[1], col[2], 1); this.vert(p01, n0, col[0], col[1], col[2], 1); this.vert(p11, n1, col[0], col[1], col[2], 1);
+    this.vert(p00, n0, col[0], col[1], col[2], 1); this.vert(p11, n1, col[0], col[1], col[2], 1); this.vert(p10, n1, col[0], col[1], col[2], 1);
+    var nxp = norm3(td(m, 1, 0, 0)), nxn = norm3(td(m, -1, 0, 0));
+    this.vert(tp(m, h, 0, 0), nxp, col[0], col[1], col[2], 1); this.vert(p01, nxp, col[0], col[1], col[2], 1); this.vert(p11, nxp, col[0], col[1], col[2], 1);
+    this.vert(tp(m, -h, 0, 0), nxn, col[0], col[1], col[2], 1); this.vert(p10, nxn, col[0], col[1], col[2], 1); this.vert(p00, nxn, col[0], col[1], col[2], 1);
+  }
+};
+
+/* ---------------- shaders ---------------- */
+function makeProg(vs, fs) {
+  function sh(type, src) {
+    var s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+    return s;
+  }
+  var p = gl.createProgram();
+  gl.attachShader(p, sh(gl.VERTEX_SHADER, vs)); gl.attachShader(p, sh(gl.FRAGMENT_SHADER, fs));
+  gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+  return p;
+}
+var mainProg = makeProg(
+  'attribute vec3 aP; attribute vec3 aN; attribute vec4 aC;' +
+  'uniform mat4 uVP;' +
+  'varying vec4 vC; varying vec3 vN; varying vec3 vW;' +
+  'void main(){ gl_Position = uVP * vec4(aP, 1.0); vC = aC; vN = aN; vW = aP; }',
+  'precision highp float;' +
+  'varying vec4 vC; varying vec3 vN; varying vec3 vW;' +
+  'uniform vec3 uSun; uniform vec3 uFogC; uniform vec3 uEye;' +
+  'void main(){ vec3 n = normalize(vN);' +
+  ' float dif = max(dot(n, uSun), 0.0); float sky = max(n.y, 0.0);' +
+  ' vec3 col = vC.rgb * (vec3(0.40, 0.35, 0.33) + vec3(1.05, 0.80, 0.58) * dif + vec3(0.16, 0.19, 0.25) * sky);' +
+  ' float fog = 1.0 - exp(-distance(vW, uEye) * 0.0036);' +
+  ' col = mix(col, uFogC, clamp(fog, 0.0, 1.0));' +
+  ' gl_FragColor = vec4(col, vC.a); }'
+);
+var skyProg = makeProg(
+  'attribute vec2 aP; varying vec2 vP; void main(){ vP = aP; gl_Position = vec4(aP, 0.9999, 1.0); }',
+  'precision mediump float; varying vec2 vP;' +
+  'uniform vec3 uFwd; uniform vec3 uRight; uniform vec3 uUp; uniform vec3 uSun;' +
+  'uniform float uTanF; uniform float uAspect;' +
+  'void main(){' +
+  ' vec3 dir = normalize(uFwd + vP.x * uAspect * uTanF * uRight + vP.y * uTanF * uUp);' +
+  ' float h = clamp(dir.y, 0.0, 1.0);' +
+  ' vec3 horizon = vec3(0.937, 0.729, 0.522);' +
+  ' vec3 mid = vec3(0.831, 0.510, 0.373);' +
+  ' vec3 top = vec3(0.353, 0.427, 0.576);' +
+  ' vec3 col = mix(horizon, mid, smoothstep(0.0, 0.16, h));' +
+  ' col = mix(col, top, smoothstep(0.13, 0.62, h));' +
+  ' float s = max(dot(dir, uSun), 0.0);' +
+  ' col += vec3(1.0, 0.87, 0.66) * (smoothstep(0.9993, 0.99975, s) * 0.9 + pow(s, 9.0) * 0.28);' +
+  ' gl_FragColor = vec4(col, 1.0); }'
+);
+var A = {
+  P: gl.getAttribLocation(mainProg, 'aP'),
+  N: gl.getAttribLocation(mainProg, 'aN'),
+  C: gl.getAttribLocation(mainProg, 'aC'),
+  skyP: gl.getAttribLocation(skyProg, 'aP')
+};
+var U = {
+  VP: gl.getUniformLocation(mainProg, 'uVP'),
+  Eye: gl.getUniformLocation(mainProg, 'uEye'),
+  Sun: gl.getUniformLocation(mainProg, 'uSun'),
+  FogC: gl.getUniformLocation(mainProg, 'uFogC'),
+  sFwd: gl.getUniformLocation(skyProg, 'uFwd'),
+  sRight: gl.getUniformLocation(skyProg, 'uRight'),
+  sUp: gl.getUniformLocation(skyProg, 'uUp'),
+  sSun: gl.getUniformLocation(skyProg, 'uSun'),
+  sTanF: gl.getUniformLocation(skyProg, 'uTanF'),
+  sAspect: gl.getUniformLocation(skyProg, 'uAspect')
+};
+
+/* ---------------- palette ---------------- */
+var SUN = norm3([0.42, 0.26, -0.72]);
+var FOGC = C('#EFBA85');
+var COL = {
+  sand: C('#C08552'), ballast: C('#6b5c4c'), sleeper: C('#4a3526'), rail: C('#494e54'),
+  iron: C('#26221f'), ironLight: C('#3a352f'), brass: C('#a9793a'), cabRed: C('#5f2b1e'),
+  boxcar: C('#7A3B2A'), boxcarDark: C('#5e2d20'), roof: C('#3b3430'), caboose: C('#8C2F26'),
+  cactus: C('#5C7345'), rock: C('#8f7a63'), scrub: C('#8a7448'), mesa: C('#8f4f35'),
+  hoof: C('#2a211a'), leather: C('#5a3a22'), skin: C('#b98a62'), bandana: C('#a83226'),
+  pole: C('#4f3a28'), weed: C('#907a4e'), steel: C('#565b60')
+};
+
+/* ---------------- static world ---------------- */
+var staticB = new Bucket(500000);
+(function buildStatic() {
+  var rng = (function (s) { return function () { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; }; })(7);
+  // desert floor
+  var ext = 480, step = 12;
+  for (var gx = -ext; gx < ext; gx += step) {
+    for (var gz = -ext; gz < ext; gz += step) {
+      var t0 = 0.94 + rng() * 0.14;
+      var c = [COL.sand[0]*t0, COL.sand[1]*t0, COL.sand[2]*t0];
+      function hAt(x, z) {
+        var d = Math.min(1, Math.max(0, (Math.abs(z) - 8) / 30));
+        return d * (Math.sin(x*0.021 + 1.7) * Math.sin(z*0.017) * 2.4 + Math.sin(x*0.083) * Math.sin(z*0.061 + 0.5) * 0.8);
+      }
+      var p00 = [gx, hAt(gx, gz), gz], p10 = [gx+step, hAt(gx+step, gz), gz];
+      var p01 = [gx, hAt(gx, gz+step), gz+step], p11 = [gx+step, hAt(gx+step, gz+step), gz+step];
+      var up = [0, 1, 0];
+      staticB.vert(p00, up, c[0], c[1], c[2], 1); staticB.vert(p10, up, c[0], c[1], c[2], 1); staticB.vert(p11, up, c[0], c[1], c[2], 1);
+      staticB.vert(p00, up, c[0], c[1], c[2], 1); staticB.vert(p11, up, c[0], c[1], c[2], 1); staticB.vert(p01, up, c[0], c[1], c[2], 1);
+    }
+  }
+  // track ballast + rails (uniform along X, so they can stay put)
+  staticB.box(T(0, 0.1, 0), 960, 0.22, 3.4, COL.ballast);
+  staticB.box(T(0, 0.3, -0.72), 960, 0.15, 0.11, COL.rail);
+  staticB.box(T(0, 0.3, 0.72), 960, 0.15, 0.11, COL.rail);
+  // distant mesas (scenery beyond the fog line)
+  var mesas = [[-260, -190], [-40, -260], [190, -210], [-160, 230], [120, 260], [330, -160], [-330, 200]];
+  for (var i = 0; i < mesas.length; i++) {
+    var mx = mesas[i][0], mz = mesas[i][1], sc = 0.6 + rng() * 0.55;
+    staticB.box(T(mx, 6*sc, mz), 74*sc, 12*sc, 50*sc, COL.mesa);
+    staticB.box(T(mx + 8, 14.5*sc, mz), 46*sc, 5.5*sc, 34*sc, COL.mesa);
+    staticB.box(T(mx - 5, 18.5*sc, mz + 4), 24*sc, 3.5*sc, 20*sc, COL.mesa);
+  }
+})();
+
+/* ---------------- scroll-by scenery items ---------------- */
+var RANGE = 340;
+var scatter = [];
+(function () {
+  var rng = (function (s) { return function () { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; }; })(99);
+  for (var i = 0; i < 95; i++) {
+    var z = (6 + rng() * 70) * (rng() < 0.5 ? -1 : 1);
+    var r = rng();
+    scatter.push({ x0: rng() * RANGE, z: z, s: 0.7 + rng() * 0.9, type: r < 0.4 ? 0 : (r < 0.7 ? 1 : 2), rot: rng() * 6.28 });
+  }
+})();
+function wrapX(x) { var v = (x % RANGE + RANGE * 1.5) % RANGE; return v - RANGE / 2; }
+
+/* ---------------- dynamic buffers ---------------- */
+var dynB = new Bucket(600000);
+var partB = new Bucket(80000);
+var staticVBO = gl.createBuffer(), dynVBO = gl.createBuffer(), partVBO = gl.createBuffer(), skyVBO = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, staticVBO);
+gl.bufferData(gl.ARRAY_BUFFER, staticB.f.subarray(0, staticB.n * 10), gl.STATIC_DRAW);
+gl.bindBuffer(gl.ARRAY_BUFFER, skyVBO);
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 3,-1, -1,3]), gl.STATIC_DRAW);
+
+/* ---------------- particles ---------------- */
+var parts = [];
+function spawn(x, y, z, vx, vy, vz, life, s0, s1, col, a0, grav) {
+  if (parts.length > 620) parts.shift();
+  parts.push({ x:x, y:y, z:z, vx:vx, vy:vy, vz:vz, life:life, age:0, s0:s0, s1:s1, c:col, a0:a0, g:grav });
+}
+
+/* ---------------- the train ---------------- */
+var SPEED = 9;
+function drawWheel(B, x, y, r, ang, big) {
+  B.cyl(chain(T(x, y, -0.82), RY(Math.PI/2)), r, 0.13, big ? 14 : 10, COL.iron);
+  B.cyl(chain(T(x, y, 0.82), RY(Math.PI/2)), r, 0.13, big ? 14 : 10, COL.iron);
+  for (var s = -1; s <= 1; s += 2) {
+    B.box(chain(T(x, y, 0.82 * s), RZ(ang)), r*1.8, 0.09, 0.05, COL.ironLight);
+    B.box(chain(T(x, y, 0.82 * s), RZ(ang + Math.PI/2)), r*1.8, 0.09, 0.05, COL.ironLight);
+  }
+}
+function drawTrain(B, t, scroll) {
+  var bob = Math.sin(t * 6.3) * 0.018;
+  var ang = -scroll / 0.8;
+  var loco = T(0, bob, 0);
+  // frame + cowcatcher
+  B.box(chain(loco, T(6.3, 1.05, 0)), 4.6, 0.28, 1.5, COL.iron);
+  B.box(chain(loco, T(8.62, 0.72, 0), RZ(-0.62)), 0.14, 1.15, 1.6, COL.iron);
+  B.box(chain(loco, T(8.45, 0.5, 0)), 0.5, 0.14, 1.6, COL.iron);
+  // boiler + bands + firebox
+  B.cyl(chain(loco, T(6.6, 1.95, 0)), 0.78, 2.9, 16, COL.iron);
+  B.box(chain(loco, T(5.7, 1.95, 0)), 0.06, 1.62, 1.62, COL.ironLight);
+  B.box(chain(loco, T(6.5, 1.95, 0)), 0.06, 1.62, 1.62, COL.ironLight);
+  B.box(chain(loco, T(7.3, 1.95, 0)), 0.06, 1.62, 1.62, COL.ironLight);
+  // diamond smokestack
+  B.cyl(chain(loco, T(7.5, 3.1, 0), RZ(Math.PI/2)), 0.17, 1.0, 10, COL.iron);
+  B.cyl(chain(loco, T(7.5, 3.75, 0), RZ(Math.PI/2)), 0.34, 0.4, 10, COL.iron);
+  // dome + bell + headlamp
+  B.cyl(chain(loco, T(6.5, 2.85, 0), RZ(Math.PI/2)), 0.3, 0.5, 10, COL.brass);
+  B.box(chain(loco, T(5.95, 2.9, 0)), 0.18, 0.24, 0.18, COL.brass);
+  B.box(chain(loco, T(8.15, 2.6, 0)), 0.36, 0.4, 0.36, COL.brass);
+  // cab
+  B.box(chain(loco, T(4.7, 2.15, 0)), 1.25, 1.7, 2.0, COL.cabRed);
+  B.box(chain(loco, T(4.7, 3.08, 0)), 1.7, 0.12, 2.35, COL.roof);
+  B.box(chain(loco, T(4.7, 2.45, 1.01)), 0.7, 0.6, 0.05, COL.iron);
+  B.box(chain(loco, T(4.7, 2.45, -1.01)), 0.7, 0.6, 0.05, COL.iron);
+  // drive wheels + rods
+  drawWheel(B, 5.2, 1.16, 0.8, ang, true);
+  drawWheel(B, 6.8, 1.16, 0.8, ang, true);
+  drawWheel(B, 7.9, 0.74, 0.38, ang * 2.1, false);
+  var cr = 0.45, px = Math.cos(ang) * cr, py = Math.sin(ang) * cr;
+  for (var s = -1; s <= 1; s += 2) {
+    B.box(T(6.0 + px, 1.16 + py, 0.93 * s), 2.15, 0.1, 0.06, COL.steel);
+    var pinX = 6.8 + px, pistX = 7.75;
+    B.box(T((pinX + pistX) / 2, 1.16 + py * 0.5, 0.93 * s), Math.abs(pinX - pistX) + 0.15, 0.08, 0.06, COL.steel);
+    B.cyl(T(7.9, 1.16, 0.93 * s), 0.17, 0.7, 8, COL.ironLight);
+  }
+  // tender
+  B.box(chain(loco, T(3.1, 1.6, 0)), 1.8, 1.35, 1.9, COL.iron);
+  B.box(chain(loco, T(3.1, 2.35, 0)), 1.5, 0.3, 1.5, C('#171310'));
+  drawWheel(B, 2.6, 0.74, 0.38, ang * 2.1, false);
+  drawWheel(B, 3.6, 0.74, 0.38, ang * 2.1, false);
+  // cars
+  var cars = [
+    { cx: -0.6, kind: 'box' }, { cx: -5.7, kind: 'box' }, { cx: -10.8, kind: 'box' }, { cx: -15.4, kind: 'cab' }
+  ];
+  for (var i = 0; i < cars.length; i++) {
+    var cx = cars[i].cx;
+    var mC = chain(T(cx, Math.sin(t * 5.1 + i * 1.9) * 0.02, 0), RX(Math.sin(t * 2.7 + i * 1.4) * 0.012));
+    if (cars[i].kind === 'box') {
+      B.box(chain(mC, T(0, 2.2, 0)), 4.4, 1.8, 1.9, COL.boxcar);
+      B.box(chain(mC, T(0, 3.16, 0)), 4.55, 0.13, 2.06, COL.roof);
+      B.box(chain(mC, T(0, 2.1, 0.99)), 1.0, 1.25, 0.06, COL.boxcarDark);
+      B.box(chain(mC, T(0, 2.1, -0.99)), 1.0, 1.25, 0.06, COL.boxcarDark);
+      B.box(chain(mC, T(0, 1.22, 0)), 4.2, 0.26, 1.2, COL.iron);
+    } else {
+      B.box(chain(mC, T(0, 2.15, 0)), 3.3, 1.7, 1.85, COL.caboose);
+      B.box(chain(mC, T(0, 3.06, 0)), 3.5, 0.12, 2.0, COL.roof);
+      B.box(chain(mC, T(0, 3.4, 0)), 1.15, 0.62, 1.25, COL.caboose);
+      B.box(chain(mC, T(0, 3.76, 0)), 1.4, 0.1, 1.5, COL.roof);
+      B.box(chain(mC, T(-1.85, 1.55, 0)), 0.5, 0.1, 1.7, COL.roof);
+    }
+    drawWheel(B, cx - 1.55, 0.74, 0.38, ang * 2.1, false);
+    drawWheel(B, cx + 1.55, 0.74, 0.38, ang * 2.1, false);
+    B.box(T(cx + (cars[i].kind === 'box' ? 2.45 : 2.0), 1.05, 0), 0.7, 0.12, 0.2, COL.iron);
+  }
+  // couplings loco->tender->car1
+  B.box(T(2.05, 1.05, 0), 0.5, 0.12, 0.2, COL.iron);
+  // robber up on car two's roof, crouched and firing forward
+  var mRb = chain(T(-5.7, 3.32, 0.1), RY(0.15), RZ(-0.12));
+  drawBandit(B, mRb, t, 0.55, C('#413d3a'), C('#2e2620'), true, t * 0.5 + 0.45);
+  return loco;
+}
+
+/* ---------------- bandit figure (shared by riders & roof man) ----------------
+   m = frame at his seat/feet; crouch 0..1 */
+function drawBandit(B, m, t, crouch, coat, hat, gun, flashPhase) {
+  var mR = chain(m, RZ(0.15 + crouch * 0.45));
+  // legs (folded when crouched / riding)
+  for (var s = -1; s <= 1; s += 2) {
+    var mTh = chain(mR, T(0.02, 0.12, 0.24 * s), RZ(1.0 + crouch * 0.4));
+    B.box(chain(mTh, T(0, -0.2, 0)), 0.15, 0.4, 0.15, coat);
+    var mSh = chain(mTh, T(0, -0.4, 0), RZ(-1.7));
+    B.box(chain(mSh, T(0, -0.17, 0)), 0.12, 0.36, 0.12, COL.iron);
+  }
+  // torso, head, hat, bandana
+  B.box(chain(mR, T(0, 0.5, 0)), 0.4, 0.62, 0.46, coat);
+  var mHd = chain(mR, T(0.03, 0.97, 0));
+  B.box(mHd, 0.24, 0.26, 0.22, COL.skin);
+  B.box(chain(mHd, T(0.1, -0.05, 0)), 0.09, 0.13, 0.23, COL.bandana);
+  B.box(chain(mHd, T(-0.13, -0.06, 0), RZ(0.5 + Math.sin(t * 8 + flashPhase * 7) * 0.25)), 0.3, 0.16, 0.06, COL.bandana);
+  B.box(chain(mHd, T(0, 0.16, 0)), 0.46, 0.05, 0.44, hat);
+  B.box(chain(mHd, T(0, 0.28, 0)), 0.25, 0.21, 0.23, hat);
+  // left arm down to the reins / roof
+  var mAL = chain(mR, T(0.05, 0.72, -0.27), RZ(0.85));
+  B.box(chain(mAL, T(0, -0.23, 0)), 0.11, 0.44, 0.11, coat);
+  // right arm: raised six-shooter or hanging on
+  if (gun) {
+    var recoil = 0;
+    var f = ((flashPhase % 1) + 1) % 1;
+    if (f < 0.06) recoil = (0.06 - f) * 6;
+    var mAR = chain(mR, T(0.05, 0.72, 0.27), RZ(2.15 + recoil * 0.5));
+    B.box(chain(mAR, T(0, -0.24, 0)), 0.11, 0.46, 0.11, coat);
+    var mG = chain(mAR, T(0, -0.5, 0), RZ(-2.05));
+    B.box(chain(mG, T(0.12, 0.02, 0)), 0.32, 0.09, 0.07, COL.iron);
+    B.box(chain(mG, T(-0.04, -0.07, 0)), 0.09, 0.14, 0.06, COL.leather);
+    if (f < 0.05) {
+      var tip = tp(mG, 0.32, 0.03, 0);
+      var fl = 0.9 - f * 12;
+      partB.box(chain(T(tip[0], tip[1], tip[2]), RZ(0.6)), 0.55 * fl, 0.09, 0.09, [2.6, 2.1, 1.1], 0.95);
+      partB.box(chain(T(tip[0], tip[1], tip[2]), RZ(-0.6)), 0.55 * fl, 0.09, 0.09, [2.6, 2.1, 1.1], 0.95);
+      partB.box(chain(T(tip[0], tip[1], tip[2]), RY(1.1)), 0.45 * fl, 0.08, 0.08, [2.8, 2.3, 1.3], 0.9);
+    }
+  } else {
+    var mAR2 = chain(mR, T(0.05, 0.72, 0.27), RZ(0.75));
+    B.box(chain(mAR2, T(0, -0.23, 0)), 0.11, 0.44, 0.11, coat);
+  }
+}
+
+/* ---------------- horses ---------------- */
+var horses = [
+  { z: 2.9,  x0: -2.8,  ph: 0.00, sw: 0.55, col: C('#6E4A33'), coat: C('#5a5148'), hat: C('#3d3128'), gun: true,  fo: 0.15 },
+  { z: 4.4,  x0: -7.6,  ph: 0.37, sw: 0.42, col: C('#4a3629'), coat: C('#6b5f52'), hat: C('#6e5a41'), gun: true,  fo: 0.62 },
+  { z: 3.5,  x0: -12.4, ph: 0.64, sw: 0.66, col: C('#7a5a3a'), coat: C('#54442f'), hat: C('#2e2620'), gun: false, fo: 0 },
+  { z: -3.1, x0: -5.4,  ph: 0.82, sw: 0.48, col: C('#3E2E24'), coat: C('#584f41'), hat: C('#4a3a2c'), gun: true,  fo: 0.31 }
+];
+var LEG = [
+  { sx: 0.55, ph: 0.55 }, { sx: 0.55, ph: 0.80 },   // front L/R (as fractions of cycle)
+  { sx: -0.55, ph: 0.00 }, { sx: -0.55, ph: 0.25 }  // hind L/R
+];
+function drawHorse(B, h, t, dt) {
+  var cyc = (t * 2.55 + h.ph) * Math.PI * 2;
+  var x = h.x0 + Math.sin(t * h.sw + h.ph * 6.0) * 2.3;
+  var y = 1.18 + Math.sin(cyc) * 0.1;
+  var mB = chain(T(x, y, h.z), RZ(Math.sin(cyc + 1.2) * 0.075));
+  var dark = [h.col[0] * 0.55, h.col[1] * 0.55, h.col[2] * 0.55];
+  // body
+  B.box(mB, 1.5, 0.62, 0.52, h.col);
+  B.box(chain(mB, T(0.62, -0.04, 0)), 0.5, 0.56, 0.46, h.col);
+  B.box(chain(mB, T(-0.62, 0.02, 0)), 0.5, 0.56, 0.48, h.col);
+  // neck + head
+  var mN = chain(mB, T(0.72, 0.26, 0), RZ(0.82 + Math.sin(cyc) * 0.06));
+  B.box(chain(mN, T(0.3, 0, 0)), 0.7, 0.34, 0.3, h.col);
+  B.box(chain(mN, T(0.28, 0.2, 0)), 0.6, 0.1, 0.1, dark);
+  var mH = chain(mN, T(0.62, 0.04, 0), RZ(-1.25));
+  B.box(chain(mH, T(0.14, 0, 0)), 0.5, 0.26, 0.24, h.col);
+  B.box(chain(mH, T(0.38, -0.03, 0)), 0.2, 0.18, 0.2, dark);
+  B.box(chain(mH, T(-0.06, 0.2, 0.07)), 0.07, 0.16, 0.06, dark);
+  B.box(chain(mH, T(-0.06, 0.2, -0.07)), 0.07, 0.16, 0.06, dark);
+  // tail
+  var mT2 = chain(mB, T(-0.82, 0.18, 0), RZ(0.85 + Math.sin(cyc) * 0.18));
+  B.box(chain(mT2, T(-0.32, 0, 0)), 0.72, 0.13, 0.13, dark);
+  // legs
+  for (var i = 0; i < 4; i++) {
+    var L = LEG[i], sz = (i % 2 === 0 ? 0.19 : -0.19);
+    var lc = cyc + L.ph * Math.PI * 2;
+    var isF = L.sx > 0;
+    var uA = Math.sin(lc) * 0.78 + (isF ? -0.08 : 0.1);
+    var lA = -Math.max(0, Math.sin(lc + 1.05)) * (isF ? 1.15 : 0.95);
+    var mU = chain(mB, T(L.sx, -0.24, sz), RZ(uA));
+    B.box(chain(mU, T(0, -0.25, 0)), 0.18, 0.46, 0.17, h.col);
+    var mL = chain(mU, T(0, -0.47, 0), RZ(lA));
+    B.box(chain(mL, T(0, -0.21, 0)), 0.13, 0.42, 0.12, dark);
+    B.box(chain(mL, T(0.02, -0.44, 0)), 0.17, 0.09, 0.15, COL.hoof);
+    // kick up dust when this hoof is planted
+    if (Math.sin(lc) < -0.75 && Math.random() < dt * 22) {
+      spawn(x + L.sx, 0.12, h.z + sz, -SPEED * 0.55 + Math.random() * 2, 0.7 + Math.random() * 1.2, (Math.random() - 0.5) * 1.6,
+            0.9 + Math.random() * 0.5, 0.16, 0.85, C('#c9a06a'), 0.42, -0.6);
+    }
+  }
+  // saddle + rider
+  B.box(chain(mB, T(-0.05, 0.33, 0)), 0.55, 0.1, 0.62, COL.bandana);
+  B.box(chain(mB, T(-0.05, 0.4, 0)), 0.45, 0.1, 0.5, COL.leather);
+  drawBandit(B, chain(mB, T(-0.05, 0.42, 0), RZ(Math.sin(cyc) * 0.05)), t, 0.05, h.coat, h.hat, h.gun, t * 0.55 + h.fo);
+}
+
+/* ---------------- scenery pass ---------------- */
+function drawScenery(B, t, scroll) {
+  var i, wx, fade;
+  // sleepers
+  var off = -(scroll % 1.5);
+  for (var sx2 = -130; sx2 < 130; sx2 += 1.5) {
+    B.box(T(sx2 + off, 0.22, 0), 0.5, 0.09, 2.1, COL.sleeper);
+  }
+  // telegraph poles
+  for (i = 0; i < 14; i++) {
+    wx = wrapX(i * 26 + 9 - scroll);
+    fade = Math.min(1, Math.max(0, (RANGE / 2 - Math.abs(wx)) / 36));
+    if (fade < 0.02) continue;
+    B.box(T(wx, 2.3 * fade, -3.6), 0.16, 4.6 * fade, 0.16, COL.pole);
+    B.box(T(wx, 4.25 * fade, -3.6), 0.14, 0.1, 1.5, COL.pole);
+  }
+  // cacti, rocks, scrub
+  for (i = 0; i < scatter.length; i++) {
+    var s = scatter[i];
+    wx = wrapX(s.x0 - scroll);
+    fade = Math.min(1, Math.max(0, (RANGE / 2 - Math.abs(wx)) / 36));
+    if (fade < 0.02) continue;
+    var sc = s.s * fade;
+    if (s.type === 0) {
+      var mCa = chain(T(wx, 0, s.z), RY(s.rot));
+      B.box(chain(mCa, T(0, 1.1 * sc, 0)), 0.4 * sc, 2.2 * sc, 0.4 * sc, COL.cactus);
+      B.box(chain(mCa, T(0.42 * sc, 1.15 * sc, 0)), 0.5 * sc, 0.3 * sc, 0.3 * sc, COL.cactus);
+      B.box(chain(mCa, T(0.62 * sc, 1.5 * sc, 0)), 0.28 * sc, 0.8 * sc, 0.3 * sc, COL.cactus);
+      B.box(chain(mCa, T(-0.4 * sc, 0.85 * sc, 0)), 0.45 * sc, 0.28 * sc, 0.3 * sc, COL.cactus);
+    } else if (s.type === 1) {
+      B.box(chain(T(wx, 0.3 * sc, s.z), RY(s.rot), RZ(0.15)), 1.1 * sc, 0.75 * sc, 0.9 * sc, COL.rock);
+    } else {
+      B.box(chain(T(wx, 0.3 * sc, s.z), RY(s.rot)), 0.8 * sc, 0.6 * sc, 0.8 * sc, COL.scrub);
+    }
+  }
+  // tumbleweeds, outrunning even the train
+  for (i = 0; i < 3; i++) {
+    var twx = wrapX(i * 120 + 40 - scroll * 1.45);
+    var fadeW = Math.min(1, Math.max(0, (RANGE / 2 - Math.abs(twx)) / 36));
+    if (fadeW < 0.05) continue;
+    var wz = 7 + i * 5.5;
+    var roll = scroll * 1.45 / 0.5;
+    var wy = 0.5 + Math.abs(Math.sin(scroll * 0.8 + i * 2)) * 0.5;
+    var mW = chain(T(twx, wy * fadeW, wz), RZ(-roll));
+    B.box(chain(mW, RY(0)), 0.9 * fadeW, 0.16, 0.7, COL.weed);
+    B.box(chain(mW, RY(1.05)), 0.9 * fadeW, 0.16, 0.7, COL.weed);
+    B.box(chain(mW, RY(2.1), RX(0.6)), 0.9 * fadeW, 0.16, 0.7, COL.weed);
+  }
+  // a vulture wheeling overhead
+  var va = t * 0.4;
+  var vx = Math.cos(va) * 26 - 4, vz = Math.sin(va) * 26 - 6;
+  var mV = chain(T(vx, 24 + Math.sin(t * 0.9) * 1.5, vz), RY(-va));
+  var flap = Math.sin(t * 2.2) * 0.45;
+  B.box(mV, 0.7, 0.12, 0.18, COL.iron);
+  B.box(chain(mV, RX(flap), T(0, 0, 0.6)), 0.32, 0.05, 1.2, COL.iron);
+  B.box(chain(mV, RX(-flap), T(0, 0, -0.6)), 0.32, 0.05, 1.2, COL.iron);
+}
+
+/* ---------------- camera ---------------- */
+var cam = { yaw: 0.5, pitch: 0.17, dist: 17.5 };
+var lastPointer = -10, dragging = false, px0 = 0, py0 = 0;
+canvas.addEventListener('pointerdown', function (e) { dragging = true; px0 = e.clientX; py0 = e.clientY; lastPointer = tNow; canvas.setPointerCapture(e.pointerId); });
+window.addEventListener('pointermove', function (e) {
+  if (!dragging) return;
+  cam.yaw -= (e.clientX - px0) * 0.005; cam.pitch += (e.clientY - py0) * 0.004;
+  cam.pitch = Math.min(0.9, Math.max(-0.05, cam.pitch));
+  px0 = e.clientX; py0 = e.clientY; lastPointer = tNow;
+});
+window.addEventListener('pointerup', function () { dragging = false; });
+canvas.addEventListener('wheel', function (e) {
+  e.preventDefault();
+  cam.dist = Math.min(48, Math.max(7, cam.dist * (1 + e.deltaY * 0.001)));
+  lastPointer = tNow;
+}, { passive: false });
+
+/* ---------------- render loop ---------------- */
+function bindAndDraw(vbo, data, count, dynamic) {
+  gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+  if (data) gl.bufferData(gl.ARRAY_BUFFER, data, gl.DYNAMIC_DRAW);
+  gl.enableVertexAttribArray(A.P); gl.vertexAttribPointer(A.P, 3, gl.FLOAT, false, 40, 0);
+  gl.enableVertexAttribArray(A.N); gl.vertexAttribPointer(A.N, 3, gl.FLOAT, false, 40, 12);
+  gl.enableVertexAttribArray(A.C); gl.vertexAttribPointer(A.C, 4, gl.FLOAT, false, 40, 24);
+  gl.drawArrays(gl.TRIANGLES, 0, count);
+}
+
+var tNow = 0, tPrev = 0, smokeAcc = 0;
+function frame(ms) {
+  var t = ms / 1000;
+  var dt = Math.min(0.05, t - tPrev || 0.016);
+  tPrev = t; tNow = t;
+  var scroll = t * SPEED;
+
+  // size
+  var dpr = Math.min(2, window.devicePixelRatio || 1);
+  var w = Math.round(canvas.clientWidth * dpr), hpx = Math.round(canvas.clientHeight * dpr);
+  if (canvas.width !== w || canvas.height !== hpx) { canvas.width = w; canvas.height = hpx; }
+  gl.viewport(0, 0, w, hpx);
+
+  // camera: slow auto-orbit unless the user has taken the reins
+  if (!RM && t - lastPointer > 8 && !dragging) cam.yaw += dt * 0.045;
+  var bobC = RM ? 0 : Math.sin(t * 0.7) * 0.25;
+  var tgt = [1.2 + bobC, 2.1, 0.6];
+  var cp = Math.cos(cam.pitch);
+  var eye = [tgt[0] + cam.dist * cp * Math.sin(cam.yaw),
+             Math.max(1.2, tgt[1] + cam.dist * Math.sin(cam.pitch)),
+             tgt[2] + cam.dist * cp * Math.cos(cam.yaw)];
+  var view = lookAt(eye, tgt, [0, 1, 0]);
+  var fov = 0.9;
+  var proj = persp(fov, w / hpx, 0.3, 900);
+  var vp = mul(proj, view);
+  var fwd = norm3([tgt[0]-eye[0], tgt[1]-eye[1], tgt[2]-eye[2]]);
+  var right = norm3(cross(fwd, [0,1,0]));
+  var upv = cross(right, fwd);
+
+  // rebuild dynamic world
+  dynB.n = 0; partB.n = 0;
+  drawTrain(dynB, t, scroll);
+  drawScenery(dynB, t, scroll);
+  for (var hI = 0; hI < horses.length; hI++) drawHorse(dynB, horses[hI], t, dt);
+
+  // chimney smoke + wheel steam + trailing dust
+  smokeAcc += dt;
+  while (smokeAcc > 0.055) {
+    smokeAcc -= 0.055;
+    var g = 0.22 + Math.random() * 0.12;
+    spawn(7.5, 4.05, 0, -SPEED * 0.82 + (Math.random()-0.5), 2.1 + Math.random() * 1.2, (Math.random()-0.5) * 0.8,
+          2.6 + Math.random(), 0.34, 1.9, [g, g * 0.98, g * 0.96], 0.62, 0.35);
+    if (Math.random() < 0.5) {
+      spawn(7.6, 0.6, (Math.random() < 0.5 ? 1 : -1) * 1.0, -SPEED * 0.6, 0.9 + Math.random(), (Math.random()-0.5)*2,
+            0.8, 0.2, 0.9, [0.95, 0.93, 0.9], 0.3, 0.1);
+    }
+    spawn(-17 + Math.random() * 3, 0.2, (Math.random()-0.5) * 2.2, -SPEED * 0.5, 0.5 + Math.random(), (Math.random()-0.5)*2,
+          1.3, 0.3, 1.4, C('#c9a06a'), 0.3, -0.3);
+  }
+
+  // particles -> billboards
+  for (var pI = parts.length - 1; pI >= 0; pI--) {
+    var p = parts[pI];
+    p.age += dt;
+    if (p.age >= p.life) { parts.splice(pI, 1); continue; }
+    p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
+    p.vy += p.g * dt; p.vx *= (1 - dt * 0.6);
+    var k = p.age / p.life, sz2 = p.s0 + (p.s1 - p.s0) * k, al = p.a0 * (1 - k);
+    var rx = right[0]*sz2, ry = right[1]*sz2, rz = right[2]*sz2;
+    var ux = upv[0]*sz2, uy = upv[1]*sz2, uz = upv[2]*sz2;
+    var up2 = [0,1,0];
+    var q0 = [p.x - rx - ux, p.y - ry - uy, p.z - rz - uz], q1 = [p.x + rx - ux, p.y + ry - uy, p.z + rz - uz];
+    var q2 = [p.x + rx + ux, p.y + ry + uy, p.z + rz + uz], q3 = [p.x - rx + ux, p.y - ry + uy, p.z - rz + uz];
+    partB.vert(q0, up2, p.c[0], p.c[1], p.c[2], al); partB.vert(q1, up2, p.c[0], p.c[1], p.c[2], al); partB.vert(q2, up2, p.c[0], p.c[1], p.c[2], al);
+    partB.vert(q0, up2, p.c[0], p.c[1], p.c[2], al); partB.vert(q2, up2, p.c[0], p.c[1], p.c[2], al); partB.vert(q3, up2, p.c[0], p.c[1], p.c[2], al);
+  }
+  // headlamp glow
+  var lampP = [8.35, 2.6, 0];
+  var lr = 0.28;
+  partB.vert([lampP[0], lampP[1]-lr, lampP[2]-lr], [0,1,0], 2.2, 1.8, 1.1, 0.18);
+  partB.vert([lampP[0], lampP[1]+lr, lampP[2]-lr], [0,1,0], 2.2, 1.8, 1.1, 0.18);
+  partB.vert([lampP[0], lampP[1]+lr, lampP[2]+lr], [0,1,0], 2.2, 1.8, 1.1, 0.18);
+  partB.vert([lampP[0], lampP[1]-lr, lampP[2]-lr], [0,1,0], 2.2, 1.8, 1.1, 0.18);
+  partB.vert([lampP[0], lampP[1]+lr, lampP[2]+lr], [0,1,0], 2.2, 1.8, 1.1, 0.18);
+  partB.vert([lampP[0], lampP[1]-lr, lampP[2]+lr], [0,1,0], 2.2, 1.8, 1.1, 0.18);
+
+  /* ---- draw ---- */
+  gl.disable(gl.CULL_FACE);
+  gl.clearColor(FOGC[0], FOGC[1], FOGC[2], 1);
+  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+  // sky
+  gl.disable(gl.DEPTH_TEST);
+  gl.useProgram(skyProg);
+  gl.uniform3fv(U.sFwd, fwd); gl.uniform3fv(U.sRight, right); gl.uniform3fv(U.sUp, upv);
+  gl.uniform3fv(U.sSun, SUN);
+  gl.uniform1f(U.sTanF, Math.tan(fov / 2)); gl.uniform1f(U.sAspect, w / hpx);
+  gl.bindBuffer(gl.ARRAY_BUFFER, skyVBO);
+  gl.enableVertexAttribArray(A.skyP); gl.vertexAttribPointer(A.skyP, 2, gl.FLOAT, false, 0, 0);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+  gl.disableVertexAttribArray(A.skyP);
+
+  // opaque
+  gl.enable(gl.DEPTH_TEST);
+  gl.depthMask(true);
+  gl.disable(gl.BLEND);
+  gl.useProgram(mainProg);
+  gl.uniformMatrix4fv(U.VP, false, new Float32Array(vp));
+  gl.uniform3fv(U.Eye, eye); gl.uniform3fv(U.Sun, SUN); gl.uniform3fv(U.FogC, FOGC);
+  bindAndDraw(staticVBO, null, staticB.n);
+  bindAndDraw(dynVBO, dynB.f.subarray(0, dynB.n * 10), dynB.n);
+
+  // translucent (smoke, dust, muzzle fire, lamp glow)
+  gl.enable(gl.BLEND);
+  gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+  gl.depthMask(false);
+  bindAndDraw(partVBO, partB.f.subarray(0, partB.n * 10), partB.n);
+  gl.depthMask(true);
+
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+})();
+</script>
