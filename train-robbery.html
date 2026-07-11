@@ -1,6 +1,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>The Iron Horse Hold-Up</title>
+<meta property="og:title" content="The Iron Horse Hold-Up">
+<meta property="og:description" content="A 3D wild-west shooting gallery in one HTML file — defend the gold train from the outlaw gang. No libraries, no build step, just WebGL.">
+<meta property="og:image" content="https://vaibhavgit9210.github.io/train-robbery/preview.png">
+<meta property="og:url" content="https://vaibhavgit9210.github.io/train-robbery/">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
 <style>
   html, body { height: 100%; margin: 0; background: #1a120c; overflow: hidden; }
   canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; cursor: none; }
@@ -41,10 +47,77 @@
   .fl { position: fixed; pointer-events: none; color: #ffd98a; font: italic 700 17px Georgia, serif;
         text-shadow: 0 1px 4px rgba(0,0,0,0.9); animation: flup 0.9s ease-out forwards; }
   @keyframes flup { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(-44px); } }
+  .fl.bad { color: #ff8a6a; }
+  .bounty .gold { font-size: 12px; letter-spacing: 0.2em; margin-top: 3px; color: #e8c24a; }
+  .bounty .gold .lost { opacity: 0.25; }
+  #ammo {
+    position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%);
+    display: flex; gap: 6px; align-items: center; pointer-events: none;
+    color: rgba(243, 227, 195, 0.85); font-family: Georgia, serif; font-style: italic; font-size: 12px;
+    text-shadow: 0 1px 4px rgba(30, 12, 2, 0.8);
+  }
+  #ammo i { width: 8px; height: 16px; border-radius: 4px 4px 2px 2px; background: #F3E3C3;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.6); }
+  #ammo i.spent { background: transparent; border: 1px solid rgba(243, 227, 195, 0.45); }
+  #ammo.reloading i { animation: relo 0.45s linear infinite alternate; }
+  @keyframes relo { from { opacity: 0.25; } to { opacity: 0.8; } }
+  #over { position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
+          background: rgba(15, 8, 3, 0.55); z-index: 5; }
+  .poster {
+    background: #20140b; border: 3px double rgba(243, 227, 195, 0.6); border-radius: 3px;
+    padding: 22px 32px 24px; text-align: center; color: #F3E3C3; max-width: 340px;
+    font-family: 'Iowan Old Style', 'Palatino', Georgia, serif; transform: rotate(-0.6deg);
+    box-shadow: 0 12px 60px rgba(0,0,0,0.6);
+  }
+  .poster .p-eyebrow { font-size: 9px; letter-spacing: 0.35em; opacity: 0.7; text-transform: uppercase; }
+  .poster h2 { margin: 8px 0 4px; font-size: 26px; letter-spacing: 0.14em; text-transform: uppercase; line-height: 1.25; }
+  .poster .p-big { font-size: 34px; font-weight: 700; color: #e8c24a; margin: 6px 0 2px; }
+  .poster .p-sm { font-size: 11px; font-style: italic; opacity: 0.8; }
+  #nmRow { display: flex; gap: 8px; justify-content: center; margin: 12px 0 4px; }
+  #nm { background: #2e1e10; border: 1px solid rgba(243, 227, 195, 0.4); color: #F3E3C3;
+        padding: 7px 9px; width: 130px; text-transform: uppercase; font-family: inherit;
+        font-size: 13px; letter-spacing: 0.1em; }
+  .btn { background: #6e1f14; color: #F3E3C3; border: 1px solid rgba(243, 227, 195, 0.5);
+         padding: 8px 16px; cursor: pointer; font-family: inherit; font-size: 12px;
+         letter-spacing: 0.14em; text-transform: uppercase; }
+  .btn:hover { background: #86281a; }
+  .btn:disabled { opacity: 0.5; cursor: default; }
+  #lbTitle { font-size: 10px; letter-spacing: 0.28em; margin-top: 12px; opacity: 0.75; }
+  #lb { list-style: none; padding: 0; margin: 8px 0 12px; font-size: 13px; min-height: 30px; }
+  #lb li { display: flex; justify-content: space-between; gap: 24px; padding: 2px 6px;
+           font-variant-numeric: tabular-nums; }
+  #lb li:first-child { color: #e8c24a; }
   .fallback { color: #F3E3C3; font-family: Georgia, serif; padding: 40px; text-align: center; }
+  canvas { touch-action: none; -webkit-user-select: none; user-select: none; }
+  #flash { position: fixed; inset: 0; background: #fff; opacity: 0; pointer-events: none;
+           transition: opacity 0.5s ease-out; z-index: 4; }
+  .banner {
+    position: fixed; left: 50%; top: 17vh; transform: translateX(-50%); z-index: 3;
+    color: #ffd98a; font-family: 'Iowan Old Style', 'Palatino', Georgia, serif;
+    font-size: clamp(15px, 3vw, 26px); letter-spacing: 0.22em; text-transform: uppercase;
+    text-shadow: 0 2px 12px rgba(0,0,0,0.85); pointer-events: none; white-space: nowrap;
+    animation: ban 2.7s ease-out forwards;
+  }
+  @keyframes ban { 0% { opacity: 0; transform: translateX(-50%) scale(0.85); }
+                   12% { opacity: 1; transform: translateX(-50%) scale(1); }
+                   78% { opacity: 1; } 100% { opacity: 0; } }
+  @media (max-width: 700px) {
+    .titles { top: 1.6vh; }
+    .titles .eyebrow, .titles .sub, .rule { display: none; }
+    .titles h1 { font-size: 15px; letter-spacing: 0.12em; margin: 4px 0; }
+    .bounty { top: 8px; right: 8px; padding: 5px 10px 6px; }
+    .bounty .b-val { font-size: 18px; margin: 1px 0; }
+    .bounty .b-label { font-size: 7px; }
+    .hint { display: none; }
+    #ammo { bottom: 10px; }
+    .poster { max-width: 86vw; padding: 16px 18px 18px; }
+    .poster h2 { font-size: 20px; }
+    #xh { display: none; }
+  }
 </style>
 
 <canvas id="gl"></canvas>
+<div id="flash"></div>
 <div class="vignette"></div>
 <div class="titles">
   <div class="eyebrow">A moving picture in three dimensions</div>
@@ -56,8 +129,20 @@
   <div class="b-label">Bounty collected</div>
   <div class="b-val" id="bounty">$0</div>
   <div class="b-sub" id="downs">the gang rides free</div>
+  <div class="gold" id="goldRow" title="gold aboard"></div>
 </div>
-<div class="hint">shoot the outlaws &middot; drag to look &middot; scroll to zoom</div>
+<div class="hint">shoot the outlaws before they take the gold &middot; drag to look &middot; M mutes</div>
+<div id="ammo"></div>
+<div id="over"><div class="poster">
+  <div class="p-eyebrow">No. 1879 &mdash; Territories Express</div>
+  <h2>The Train<br>Was Robbed</h2>
+  <div class="p-big" id="finalB">$0</div>
+  <div class="p-sm">your bounty this run &middot; personal best <span id="bestB">$0</span></div>
+  <div id="nmRow"><input id="nm" maxlength="12" placeholder="YOUR NAME"><button class="btn" id="post">Post</button></div>
+  <div id="lbTitle">TOP GUNS OF THE TERRITORY</div>
+  <ol id="lb"><li>fetching the wire&hellip;</li></ol>
+  <button class="btn" id="again">Ride Again</button>
+</div></div>
 <div id="xh"></div>
 
 <script id="main">
@@ -71,6 +156,8 @@ if (!gl) {
   return;
 }
 var RM = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+var TOUCH = ('ontouchstart' in window) ? 1.4 : 1;   // fatter hitboxes on phones
+var dtGlobal = 0.016;
 
 /* ---------------- small matrix kit (column-major) ---------------- */
 function T(x, y, z) { return [1,0,0,0, 0,1,0,0, 0,0,1,0, x,y,z,1]; }
@@ -168,11 +255,11 @@ var mainProg = makeProg(
   'precision highp float;' +
   'varying vec4 vC; varying vec3 vN; varying vec3 vW;' +
   'uniform vec3 uSun; uniform vec3 uFogC; uniform vec3 uEye;' +
-  'uniform vec3 uAmb; uniform vec3 uLCol; uniform vec3 uFill;' +
+  'uniform vec3 uAmb; uniform vec3 uLCol; uniform vec3 uFill; uniform float uFogD;' +
   'void main(){ vec3 n = normalize(vN);' +
   ' float dif = max(dot(n, uSun), 0.0); float sky = max(n.y, 0.0);' +
   ' vec3 col = vC.rgb * (uAmb + uLCol * dif + uFill * sky);' +
-  ' float fog = 1.0 - exp(-distance(vW, uEye) * 0.0036);' +
+  ' float fog = 1.0 - exp(-distance(vW, uEye) * uFogD);' +
   ' col = mix(col, uFogC, clamp(fog, 0.0, 1.0));' +
   ' gl_FragColor = vec4(col, vC.a); }'
 );
@@ -213,6 +300,7 @@ var U = {
   Amb: gl.getUniformLocation(mainProg, 'uAmb'),
   LCol: gl.getUniformLocation(mainProg, 'uLCol'),
   Fill: gl.getUniformLocation(mainProg, 'uFill'),
+  FogD: gl.getUniformLocation(mainProg, 'uFogD'),
   sFwd: gl.getUniformLocation(skyProg, 'uFwd'),
   sRight: gl.getUniformLocation(skyProg, 'uRight'),
   sUp: gl.getUniformLocation(skyProg, 'uUp'),
@@ -338,20 +426,265 @@ function dustBurst(x, y, z, n) {
   }
 }
 
+/* ---------------- sound (all synthesized, unlocked on first click) ---------------- */
+var AC = null, masterG = null, muted = false;
+function audio() {
+  if (muted) return null;
+  var Ctor = window.AudioContext || window.webkitAudioContext;
+  if (!Ctor) return null;
+  if (!AC) {
+    AC = new Ctor();
+    masterG = AC.createGain(); masterG.gain.value = 0.5; masterG.connect(AC.destination);
+    startChug();
+  }
+  if (AC.state === 'suspended') AC.resume();
+  return AC;
+}
+function noiseBuf(len) {
+  var b = AC.createBuffer(1, Math.floor(AC.sampleRate * len), AC.sampleRate);
+  var d = b.getChannelData(0);
+  for (var i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  return b;
+}
+function shotSound() {
+  if (!audio()) return;
+  var t0 = AC.currentTime;
+  var src = AC.createBufferSource(); src.buffer = noiseBuf(0.3);
+  var f = AC.createBiquadFilter(); f.type = 'lowpass';
+  f.frequency.setValueAtTime(3200, t0); f.frequency.exponentialRampToValueAtTime(180, t0 + 0.25);
+  var g = AC.createGain(); g.gain.setValueAtTime(0.8, t0); g.gain.exponentialRampToValueAtTime(0.001, t0 + 0.3);
+  src.connect(f); f.connect(g); g.connect(masterG); src.start(t0); src.stop(t0 + 0.32);
+}
+function ricochet() {
+  if (!AC || muted) return;
+  var t0 = AC.currentTime + 0.06;
+  var o = AC.createOscillator(); o.type = 'sine';
+  o.frequency.setValueAtTime(2100, t0); o.frequency.exponentialRampToValueAtTime(320, t0 + 0.28);
+  var g = AC.createGain(); g.gain.setValueAtTime(0.0001, t0);
+  g.gain.exponentialRampToValueAtTime(0.15, t0 + 0.02); g.gain.exponentialRampToValueAtTime(0.001, t0 + 0.3);
+  o.connect(g); g.connect(masterG); o.start(t0); o.stop(t0 + 0.32);
+}
+function distantShot() {
+  if (!AC || muted) return;
+  var t0 = AC.currentTime;
+  var src = AC.createBufferSource(); src.buffer = noiseBuf(0.15);
+  var f = AC.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 550;
+  var g = AC.createGain(); g.gain.setValueAtTime(0.14, t0); g.gain.exponentialRampToValueAtTime(0.001, t0 + 0.18);
+  src.connect(f); f.connect(g); g.connect(masterG); src.start(t0); src.stop(t0 + 0.2);
+}
+function clickSound(freq, when, vol) {
+  var t0 = AC.currentTime + (when || 0);
+  var o = AC.createOscillator(); o.type = 'square'; o.frequency.value = freq;
+  var g = AC.createGain(); g.gain.setValueAtTime(vol || 0.08, t0); g.gain.exponentialRampToValueAtTime(0.001, t0 + 0.05);
+  o.connect(g); g.connect(masterG); o.start(t0); o.stop(t0 + 0.06);
+}
+function reloadSound() { if (!AC || muted) return; clickSound(700, 0, 0.07); clickSound(500, 0.14, 0.07); clickSound(900, 1.6, 0.1); }
+function emptyClick() { if (!AC || muted) return; clickSound(1100, 0, 0.05); }
+function whistle() {
+  if (!AC || muted) return;
+  var t0 = AC.currentTime, dur = 1.4;
+  for (var i = 0; i < 2; i++) {
+    var o = AC.createOscillator(); o.type = 'sine'; o.frequency.value = i === 0 ? 622 : 740;
+    var v = AC.createOscillator(); v.frequency.value = 5.2;
+    var vg = AC.createGain(); vg.gain.value = 9;
+    v.connect(vg); vg.connect(o.frequency);
+    var g = AC.createGain(); g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(0.06, t0 + 0.15);
+    g.gain.setValueAtTime(0.06, t0 + dur - 0.35); g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+    o.connect(g); g.connect(masterG); o.start(t0); o.stop(t0 + dur); v.start(t0); v.stop(t0 + dur);
+  }
+}
+function startChug() {
+  var src = AC.createBufferSource(); src.buffer = noiseBuf(1.0); src.loop = true;
+  var f = AC.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 240;
+  var g = AC.createGain(); g.gain.value = 0.05;
+  var lfo = AC.createOscillator(); lfo.frequency.value = 3.6;
+  var lg = AC.createGain(); lg.gain.value = 0.035;
+  lfo.connect(lg); lg.connect(g.gain);
+  src.connect(f); f.connect(g); g.connect(masterG); src.start(); lfo.start();
+}
+window.addEventListener('keydown', function (e) {
+  if (e.key === 'm' || e.key === 'M') {
+    muted = !muted;
+    if (masterG) masterG.gain.value = muted ? 0 : 0.5;
+  }
+});
+
+/* ---------------- shared leaderboard (Firebase RTDB over plain REST) ---------------- */
+var DB = 'https://train-robbery-default-rtdb.firebaseio.com/scores';
+function fetchTop(cb) {
+  fetch(DB + '.json?orderBy="s"&limitToLast=10')
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
+      if (d && d.error) { cb(null); return; }
+      var arr = [];
+      if (d) for (var kk in d) { if (d[kk] && typeof d[kk].s === 'number') arr.push(d[kk]); }
+      arr.sort(function (a, b) { return b.s - a.s; });
+      cb(arr.slice(0, 10));
+    })
+    .catch(function () { cb(null); });
+}
+function postScore(name, s, cb) {
+  fetch(DB + '.json', { method: 'POST', body: JSON.stringify({ n: name, s: s, t: { '.sv': 'timestamp' } }) })
+    .then(function (r) { return r.json(); })
+    .then(function (d) { cb(!(d && d.error)); })
+    .catch(function () { cb(false); });
+}
+
+/* ---------------- weather ---------------- */
+var WEATHERS = {
+  clear:     { gloom: 0,    fogD: 0.0036, wind: 0,   rainK: 0, dustK: 0,   gcol: [0.5, 0.5, 0.5] },
+  windy:     { gloom: 0.08, fogD: 0.0046, wind: -7,  rainK: 0, dustK: 0.4, gcol: [0.66, 0.57, 0.44] },
+  duststorm: { gloom: 0.34, fogD: 0.0095, wind: -15, rainK: 0, dustK: 1,   gcol: [0.66, 0.55, 0.4] },
+  rain:      { gloom: 0.5,  fogD: 0.006,  wind: -4,  rainK: 1, dustK: 0,   gcol: [0.44, 0.46, 0.52] }
+};
+var W_POOL = ['clear', 'clear', 'windy', 'rain', 'clear', 'duststorm', 'rain'];
+var wName = 'clear';
+var weather = { gloom: 0, fogD: 0.0036, wind: 0, rainK: 0, dustK: 0, gcol: [0.5, 0.5, 0.5] };
+var nextWeather = 18 + Math.random() * 20, nextBolt = 0;
+var flashEl = document.getElementById('flash');
+function mix3(a, b, k) { return [a[0]+(b[0]-a[0])*k, a[1]+(b[1]-a[1])*k, a[2]+(b[2]-a[2])*k]; }
+function scale3(a, k) { return [a[0]*k, a[1]*k, a[2]*k]; }
+function lightning() {
+  flashEl.style.transition = 'none'; flashEl.style.opacity = 0.5;
+  setTimeout(function () { flashEl.style.transition = 'opacity 0.5s ease-out'; flashEl.style.opacity = 0; }, 70);
+  thunder();
+}
+function thunder() {
+  if (!AC || muted) return;
+  var t0 = AC.currentTime + 0.15;
+  var src = AC.createBufferSource(); src.buffer = noiseBuf(1.4);
+  var f = AC.createBiquadFilter(); f.type = 'lowpass'; f.frequency.setValueAtTime(300, t0);
+  f.frequency.exponentialRampToValueAtTime(60, t0 + 1.2);
+  var g = AC.createGain(); g.gain.setValueAtTime(0.28, t0); g.gain.exponentialRampToValueAtTime(0.001, t0 + 1.4);
+  src.connect(f); f.connect(g); g.connect(masterG); src.start(t0); src.stop(t0 + 1.5);
+}
+
+/* ---------------- the beasts (they come from up the line, and they take more lead) ---------------- */
+var BEASTS = {
+  dragon: { hp: 5, y: 7.2, attackX: 9,  speed: 3.0, z: 0,    pay: 500, name: 'A DRAGON RIDES THE WIND',
+            steal: 'THE DRAGON TORCHES A GOLD BAG' },
+  dino:   { hp: 4, y: 0,   attackX: 5,  speed: 2.1, z: -2.6, pay: 400, name: 'A DEVIL LIZARD APPROACHES',
+            steal: 'THE LIZARD SWALLOWS A GOLD BAG' },
+  ufo:    { hp: 3, y: 8.6, attackX: -2, speed: 2.6, z: 0.5,  pay: 450, name: 'STRANGE LIGHTS UP THE LINE',
+            steal: 'THE SAUCER BEAMS UP A GOLD BAG' }
+};
+var beast = null;
+var forcedBeast = qs.get('beast');
+var nextBeast = forcedBeast ? 3 : 28 + Math.random() * 22;
+function banner(txt) {
+  var el = document.createElement('div');
+  el.className = 'banner'; el.textContent = txt;
+  document.body.appendChild(el);
+  setTimeout(function () { el.remove(); }, 2800);
+}
+function roar(ty) {
+  if (!AC || muted) return;
+  var t0 = AC.currentTime;
+  if (ty === 'ufo') {
+    var o = AC.createOscillator(); o.type = 'sine';
+    o.frequency.setValueAtTime(280, t0);
+    o.frequency.exponentialRampToValueAtTime(900, t0 + 0.4);
+    o.frequency.exponentialRampToValueAtTime(320, t0 + 0.9);
+    var g = AC.createGain(); g.gain.setValueAtTime(0.09, t0); g.gain.exponentialRampToValueAtTime(0.001, t0 + 1.0);
+    o.connect(g); g.connect(masterG); o.start(t0); o.stop(t0 + 1.0);
+  } else {
+    var o2 = AC.createOscillator(); o2.type = 'sawtooth';
+    o2.frequency.setValueAtTime(ty === 'dragon' ? 120 : 75, t0);
+    o2.frequency.exponentialRampToValueAtTime(38, t0 + 0.9);
+    var g2 = AC.createGain(); g2.gain.setValueAtTime(0.16, t0); g2.gain.exponentialRampToValueAtTime(0.001, t0 + 1.05);
+    o2.connect(g2); g2.connect(masterG); o2.start(t0); o2.stop(t0 + 1.1);
+  }
+}
+function spawnBeast() {
+  var ty = (forcedBeast && BEASTS[forcedBeast]) ? forcedBeast :
+           ['dragon', 'dino', 'ufo'][Math.floor(Math.random() * 3)];
+  var def = BEASTS[ty];
+  beast = { ty: ty, def: def, x: 62, y: def.y, z: def.z, hp: def.hp,
+            state: 'approach', stealT: 0, flashT: 0, ph: Math.random() * 6, vy: 0, rot: 0 };
+  banner(def.name);
+  roar(ty);
+}
+
 /* ---------------- game state ---------------- */
-var score = 0;
-var roof = { alive: true, respawnAt: 0 };
+var AMMO_MAX = 6, GOLD_MAX = 6;
+var bounty = 0, combo = 0, ammo = AMMO_MAX, gold = GOLD_MAX;
+var reloading = false, reloadEnd = 0, roundOver = false, posted = false;
+var best = parseInt(localStorage.getItem('tr.best') || '0', 10) || 0;
+var nextWhistle = 12;
+var roof = { alive: true, respawnAt: 0, wasF: false };
 var fallers = [];
 var shakeUntil = -1;
 var bountyEl = document.getElementById('bounty');
 var downsEl = document.getElementById('downs');
+var goldEl = document.getElementById('goldRow');
+var ammoEl = document.getElementById('ammo');
+var overEl = document.getElementById('over');
 function updateHUD() {
-  bountyEl.textContent = '$' + (score * 50);
-  downsEl.textContent = score === 0 ? 'the gang rides free' : score + (score === 1 ? ' outlaw' : ' outlaws') + ' brought down';
+  bountyEl.textContent = '$' + bounty;
+  downsEl.textContent = bounty === 0 ? 'the gang rides free' : 'best $' + Math.max(best, bounty);
 }
-function floater(x, y, text) {
+function goldHUD() {
+  var s = '';
+  for (var i = 0; i < GOLD_MAX; i++) s += '<span' + (i >= gold ? ' class="lost"' : '') + '>&#9679;</span>';
+  goldEl.innerHTML = 'GOLD ' + s;
+}
+function ammoHUD() {
+  var s = '';
+  for (var i = 0; i < AMMO_MAX; i++) s += '<i' + (i >= ammo ? ' class="spent"' : '') + '></i>';
+  ammoEl.innerHTML = s + (reloading ? '<span>&nbsp;reloading&hellip;</span>' : '');
+  ammoEl.className = reloading ? 'reloading' : '';
+}
+function renderBoard(arr) {
+  var lb = document.getElementById('lb');
+  if (arr === null) { lb.innerHTML = '<li><span>telegraph line is down</span><span>&mdash;</span></li>'; return; }
+  if (!arr.length) { lb.innerHTML = '<li><span>no names on the wire yet</span><span>&mdash;</span></li>'; return; }
+  var out = '';
+  for (var i = 0; i < arr.length; i++) {
+    var nm = String(arr[i].n || '?').slice(0, 12).replace(/[<>&]/g, '');
+    out += '<li><span>' + (i + 1) + '. ' + nm + '</span><span>$' + arr[i].s + '</span></li>';
+  }
+  lb.innerHTML = out;
+}
+function endRound() {
+  roundOver = true; posted = false;
+  if (bounty > best) { best = bounty; localStorage.setItem('tr.best', String(best)); }
+  document.getElementById('finalB').textContent = '$' + bounty;
+  document.getElementById('bestB').textContent = '$' + best;
+  document.getElementById('nm').value = localStorage.getItem('tr.name') || '';
+  document.getElementById('post').disabled = bounty <= 0;
+  overEl.style.display = 'flex';
+  fetchTop(renderBoard);
+}
+document.getElementById('post').addEventListener('click', function () {
+  var nm = document.getElementById('nm').value.trim().toUpperCase().slice(0, 12);
+  if (!nm || posted || bounty <= 0) return;
+  localStorage.setItem('tr.name', nm);
+  var btn = document.getElementById('post');
+  btn.disabled = true; btn.textContent = 'Wiring…';
+  postScore(nm, bounty, function (ok) {
+    posted = ok;
+    btn.textContent = ok ? 'Posted' : 'Failed';
+    if (!ok) { btn.disabled = false; btn.textContent = 'Retry'; }
+    if (ok) fetchTop(renderBoard);
+  });
+});
+document.getElementById('again').addEventListener('click', function () {
+  bounty = 0; combo = 0; gold = GOLD_MAX; ammo = AMMO_MAX;
+  reloading = false; roundOver = false;
+  document.getElementById('post').textContent = 'Post';
+  for (var i = 0; i < horses.length; i++) {
+    var h = horses[i];
+    h.state = 'riding'; h.catchup = -20 - i * 4; h.hasGold = false; h.robT = 0; h.fleeZ = h.z;
+  }
+  fallers.length = 0;
+  roof.alive = true;
+  updateHUD(); goldHUD(); ammoHUD();
+  overEl.style.display = 'none';
+});
+function floater(x, y, text, bad) {
   var el = document.createElement('div');
-  el.className = 'fl'; el.textContent = text;
+  el.className = bad ? 'fl bad' : 'fl'; el.textContent = text;
   el.style.left = (x - 20) + 'px'; el.style.top = (y - 24) + 'px';
   document.body.appendChild(el);
   setTimeout(function () { el.remove(); }, 950);
@@ -549,9 +882,10 @@ function drawHorseBody(B, h, t, dt, x, z, withRider) {
             0.9 + Math.random() * 0.5, 0.16, 0.85, C('#c9a06a'), 0.42, -0.6);
     }
   }
-  // saddle + rider
+  // saddle + rider (+ stolen gold on the saddle)
   B.box(chain(mB, T(-0.05, 0.33, 0)), 0.55, 0.1, 0.62, COL.bandana);
   B.box(chain(mB, T(-0.05, 0.4, 0)), 0.45, 0.1, 0.5, COL.leather);
+  if (h.hasGold) B.box(chain(mB, T(-0.48, 0.52, 0)), 0.34, 0.26, 0.32, C('#d4a827'));
   if (withRider) {
     drawBandit(B, chain(mB, T(-0.05, 0.42, 0), RZ(Math.sin(cyc) * 0.05)), t, 0.05, h.coat, h.hat, h.gun, t * 0.55 + h.fo);
   }
@@ -561,21 +895,130 @@ function updateHorse(B, h, t, dt) {
     h.catchup = Math.min(0, h.catchup + dt * 6.5);
     var x = h.x0 + h.catchup + Math.sin(t * h.sw + h.ph * 6.0) * 2.3;
     h.curX = x;
+    // long enough beside the train and he grabs a bag of gold
+    if (!roundOver && h.catchup === 0) {
+      h.robT = (h.robT || 0) + dt;
+      var stealAfter = Math.max(7, 14 - bounty / 250);
+      if (h.robT > stealAfter && gold > 0) {
+        h.robT = 0; h.hasGold = true;
+        h.state = 'escaping'; h.fleeStart = t; h.fleeX = x; h.fleeZ = h.z;
+        gold--; goldHUD();
+        floater(h.sx || window.innerWidth / 2, (h.sy || 200) - 20, 'GOLD STOLEN!', true);
+        if (gold === 0) { endRound(); }
+      }
+    }
     drawHorseBody(B, h, t, dt, x, h.z, true);
+  } else if (h.state === 'escaping') {
+    // riding off with a bag — still shootable, drop him to get it back
+    h.fleeX -= dt * 1.7;
+    h.fleeZ += dt * 2.1 * (h.z >= 0 ? 1 : -1);
+    h.curX = h.fleeX;
+    drawHorseBody(B, h, t, dt, h.fleeX, h.fleeZ, true);
+    if (t - h.fleeStart > 6) {
+      h.state = 'gone'; h.hasGold = false;
+      h.respawnAt = t + Math.max(2, 3 + Math.random() * 5 - bounty / 300);
+    }
   } else if (h.state === 'fleeing') {
     h.fleeX -= dt * 3.0;
     h.fleeZ += dt * 4.5 * (h.z >= 0 ? 1 : -1);
     drawHorseBody(B, h, t, dt, h.fleeX, h.fleeZ, false);
-    if (t - h.fleeStart > 4.2) { h.state = 'gone'; h.respawnAt = t + 3 + Math.random() * 5; }
+    if (t - h.fleeStart > 4.2) {
+      h.state = 'gone';
+      h.respawnAt = t + Math.max(2, 3 + Math.random() * 5 - bounty / 300);
+    }
   } else if (t > h.respawnAt) {
-    h.state = 'riding'; h.catchup = -26; h.fleeZ = h.z;
+    h.state = 'riding'; h.catchup = -26; h.fleeZ = h.z; h.robT = 0;
   }
 }
 function hitHorse(h, t) {
-  h.state = 'fleeing'; h.fleeStart = t; h.fleeX = h.curX; h.fleeZ = h.z;
-  fallers.push({ x: h.curX - 0.2, y: 2.5, z: h.z, vx: -5 - Math.random() * 2, vy: 2.6, vz: (Math.random() - 0.5) * 1.5,
+  if (h.hasGold) {
+    gold = Math.min(GOLD_MAX, gold + 1); goldHUD();
+    h.hasGold = false;
+  }
+  var hz = h.state === 'escaping' ? h.fleeZ : h.z;
+  h.state = 'fleeing'; h.fleeStart = t; h.fleeX = h.curX; h.fleeZ = hz;
+  fallers.push({ x: h.curX - 0.2, y: 2.5, z: hz, vx: -5 - Math.random() * 2, vy: 2.6, vz: (Math.random() - 0.5) * 1.5,
                  rot: 0, rotV: -6 - Math.random() * 4, coat: h.coat, hat: h.hat, rest: false });
-  dustBurst(h.curX, 1.5, h.z, 5);
+  dustBurst(h.curX, 1.5, hz, 5);
+}
+
+/* ---------------- beast rendering ---------------- */
+function bcol(b, col) {   // flash white when shot
+  if (b.flashT <= 0) return col;
+  return [Math.min(2, col[0] + 1.0), Math.min(2, col[1] + 1.0), Math.min(2, col[2] + 0.9)];
+}
+function drawBeast(B, b, t) {
+  var atk = b.state === 'attack';
+  if (b.ty === 'dragon') {
+    var bob = Math.sin(t * 1.6 + b.ph) * 0.5;
+    var mB = chain(T(b.x, b.y + bob + (b.state === 'dying' ? 0 : 0), b.z), RY(Math.PI), RZ(b.rot));
+    var red = bcol(b, C('#7a2320')), redD = bcol(b, C('#4e1512')), belly = bcol(b, C('#b08948'));
+    B.box(mB, 2.4, 0.8, 0.8, red);
+    B.box(chain(mB, T(0, -0.32, 0)), 2.0, 0.3, 0.6, belly);
+    var mN = chain(mB, T(1.1, 0.2, 0), RZ(0.5));
+    B.box(chain(mN, T(0.5, 0, 0)), 1.1, 0.4, 0.4, red);
+    var mH = chain(mN, T(1.05, 0.05, 0), RZ(-0.6));
+    B.box(chain(mH, T(0.3, 0, 0)), 0.8, 0.36, 0.4, red);
+    B.box(chain(mH, T(0.62, -0.12, 0), RZ(atk ? -0.35 : -0.08)), 0.6, 0.12, 0.32, redD);
+    B.box(chain(mH, T(0.1, 0.26, 0.1)), 0.1, 0.24, 0.06, redD);
+    B.box(chain(mH, T(0.1, 0.26, -0.1)), 0.1, 0.24, 0.06, redD);
+    var flap = Math.sin(t * 3.6 + b.ph) * 0.65;
+    B.box(chain(mB, T(0.1, 0.3, 0), RX(flap), T(0, 0, 1.9)), 1.5, 0.1, 3.4, redD);
+    B.box(chain(mB, T(0.1, 0.3, 0), RX(-flap), T(0, 0, -1.9)), 1.5, 0.1, 3.4, redD);
+    var mTl = chain(mB, T(-1.3, 0.05, 0), RZ(-0.25 + Math.sin(t * 2.1 + b.ph) * 0.15));
+    B.box(chain(mTl, T(-0.6, 0, 0)), 1.3, 0.34, 0.34, red);
+    B.box(chain(mTl, T(-1.5, -0.1, 0), RZ(0.2)), 1.1, 0.22, 0.22, redD);
+    if (atk) {   // fire breath toward the locomotive
+      var mp = tp(mH, 0.9, -0.1, 0);
+      for (var fi = 0; fi < 3; fi++) {
+        spawn(mp[0], mp[1], mp[2],
+              -7 - Math.random() * 3, -2.5 - Math.random() * 2, (Math.random() - 0.5) * 1.5,
+              0.45 + Math.random() * 0.25, 0.22, 0.75, [2.4, 1.15 + Math.random() * 0.5, 0.25], 0.8, -1.5);
+      }
+    }
+  } else if (b.ty === 'dino') {
+    var step = Math.sin(t * 3.2 + b.ph);
+    var mB2 = chain(T(b.x, 2.5 + Math.abs(step) * 0.14, b.z), RY(Math.PI), RZ(b.rot + step * 0.03));
+    var oli = bcol(b, C('#5c5c30')), oliD = bcol(b, C('#3d3d20'));
+    B.box(mB2, 2.6, 1.5, 1.05, oli);
+    var mN2 = chain(mB2, T(1.25, 0.55, 0), RZ(0.35));
+    B.box(chain(mN2, T(0.35, 0, 0)), 0.8, 0.6, 0.6, oli);
+    var mH2 = chain(mN2, T(0.85, 0.1, 0));
+    B.box(chain(mH2, T(0.4, 0.08, 0)), 1.15, 0.55, 0.62, oli);
+    B.box(chain(mH2, T(0.45, -0.32, 0), RZ(atk ? -0.5 - Math.sin(t * 6) * 0.2 : -0.06)), 1.0, 0.22, 0.5, oliD);
+    B.box(chain(mB2, T(0.9, -0.35, 0.35), RZ(0.7)), 0.14, 0.5, 0.14, oliD);
+    B.box(chain(mB2, T(0.9, -0.35, -0.35), RZ(0.7)), 0.14, 0.5, 0.14, oliD);
+    for (var s2 = -1; s2 <= 1; s2 += 2) {
+      var lp = step * s2;
+      var mLg = chain(mB2, T(-0.35, -0.7, 0.42 * s2), RZ(lp * 0.55));
+      B.box(chain(mLg, T(0, -0.45, 0)), 0.42, 0.95, 0.4, oli);
+      var mSh2 = chain(mLg, T(0, -0.9, 0), RZ(-Math.max(0, -lp) * 0.7));
+      B.box(chain(mSh2, T(0.05, -0.4, 0)), 0.3, 0.8, 0.32, oliD);
+      B.box(chain(mSh2, T(0.18, -0.82, 0)), 0.55, 0.16, 0.36, oliD);
+    }
+    var mTl2 = chain(mB2, T(-1.5, 0.1, 0), RZ(-0.18 + Math.sin(t * 2.4 + b.ph) * 0.1));
+    B.box(chain(mTl2, T(-0.7, 0, 0)), 1.5, 0.7, 0.6, oli);
+    B.box(chain(mTl2, T(-1.8, -0.05, 0), RZ(0.12)), 1.2, 0.4, 0.36, oliD);
+    if (atk && Math.random() < dtGlobal * 8) dustBurst(b.x + 2, 0.4, b.z, 1);
+  } else {   // ufo
+    var mU = chain(T(b.x, b.y + Math.sin(t * 1.3 + b.ph) * 0.45, b.z), RY(t * 2.2), RZ(b.rot));
+    var hull = bcol(b, C('#8b93a0')), domeC = bcol(b, C('#b4c4d4'));
+    B.cyl(chain(mU, RZ(Math.PI / 2)), 2.1, 0.4, 14, hull);
+    B.cyl(chain(mU, T(0, 0.35, 0), RZ(Math.PI / 2)), 0.9, 0.5, 10, domeC);
+    for (var li = 0; li < 6; li++) {
+      var la2 = li / 6 * Math.PI * 2;
+      B.box(chain(mU, RY(la2), T(1.7, -0.12, 0)), 0.22, 0.14, 0.22,
+            (li + Math.floor(t * 6)) % 2 ? [2.2, 1.9, 0.6] : [0.8, 0.3, 0.2]);
+    }
+    if (atk) {   // tractor beam over the train
+      partB.box(T(b.x, (b.y + 2.4) / 2, b.z), 1.4, b.y - 2.4, 1.4, [0.5, 1.8, 0.7], 0.14);
+      partB.box(T(b.x, (b.y + 2.4) / 2, b.z), 2.2, b.y - 2.4, 2.2, [0.4, 1.5, 0.6], 0.07);
+      if (Math.random() < dtGlobal * 10) {
+        spawn(b.x + (Math.random() - 0.5) * 1.4, 2.8, b.z + (Math.random() - 0.5) * 1.4,
+              0, 2.6 + Math.random(), 0, 0.9, 0.12, 0.3, [0.7, 2.0, 0.9], 0.5, 0.5);
+      }
+    }
+  }
 }
 
 /* ---------------- scenery pass ---------------- */
@@ -647,7 +1090,7 @@ canvas.addEventListener('pointerdown', function (e) {
   canvas.setPointerCapture(e.pointerId);
 });
 window.addEventListener('pointermove', function (e) {
-  xh.style.opacity = 1;
+  xh.style.opacity = roundOver ? 0 : 1;
   xh.style.transform = 'translate(' + e.clientX + 'px,' + e.clientY + 'px)';
   if (!dragging) return;
   moved += Math.abs(e.clientX - px0) + Math.abs(e.clientY - py0);
@@ -666,24 +1109,51 @@ canvas.addEventListener('wheel', function (e) {
 }, { passive: false });
 
 function fire(cx, cy) {
+  if (roundOver) return;
+  audio();   // first click unlocks the soundtrack
+  if (reloading) { emptyClick(); return; }
+  ammo--; shotSound();
   if (!RM) shakeUntil = tNow + 0.1;
-  var best = null, bd = 1e9;
+  var bt = null, bd = 1e9;
   for (var i = 0; i < targets.length; i++) {
     var tg = targets[i];
     var d = Math.hypot(cx - tg.sx, cy - tg.sy);
-    if (d < tg.r && d < bd) { bd = d; best = tg; }
+    if (d < tg.r && d < bd) { bd = d; bt = tg; }
   }
-  if (!best) return;
-  score++; updateHUD();
-  floater(best.sx, best.sy, '+$50');
-  if (best.roofHit) {
-    roof.alive = false; roof.respawnAt = tNow + 4 + Math.random() * 5;
-    fallers.push({ x: -5.7, y: 3.6, z: 0.1, vx: -4, vy: 1.6, vz: 2.4, rot: 0, rotV: -7,
-                   coat: C('#413d3a'), hat: C('#2e2620'), rest: false });
-    dustBurst(-5.7, 3.4, 0.5, 4);
+  if (bt && bt.beastHit) {
+    if (beast && beast.state !== 'dying') {
+      combo++; ricochet();
+      beast.hp--; beast.flashT = 0.16;
+      var bpay = 75 * Math.min(4, combo);
+      if (beast.hp <= 0) {
+        bpay += beast.def.pay;
+        beast.state = 'dying'; beast.vy = 2.5;
+        banner('BEAST DOWN — +$' + beast.def.pay);
+        roar(beast.ty);
+      }
+      bounty += bpay; updateHUD();
+      floater(bt.sx, bt.sy, '+$' + bpay);
+    }
+  } else if (bt) {
+    combo++; ricochet();
+    var mult = Math.min(4, combo);
+    var pay = (bt.roofHit ? 100 : 50) * mult;
+    if (!bt.roofHit && bt.horse.hasGold) pay += 100;   // recovered a bag
+    bounty += pay; updateHUD();
+    floater(bt.sx, bt.sy, '+$' + pay + (mult > 1 ? ' ×' + mult : ''));
+    if (bt.roofHit) {
+      roof.alive = false; roof.respawnAt = tNow + 4 + Math.random() * 5;
+      fallers.push({ x: -5.7, y: 3.6, z: 0.1, vx: -4, vy: 1.6, vz: 2.4, rot: 0, rotV: -7,
+                     coat: C('#413d3a'), hat: C('#2e2620'), rest: false });
+      dustBurst(-5.7, 3.4, 0.5, 4);
+    } else {
+      hitHorse(bt.horse, tNow);
+    }
   } else {
-    hitHorse(best.horse, tNow);
+    combo = 0;
   }
+  if (ammo <= 0) { reloading = true; reloadEnd = tNow + 1.8; reloadSound(); }
+  ammoHUD();
 }
 
 /* ---------------- render loop ---------------- */
@@ -726,6 +1196,33 @@ function frame(ms) {
   sky.moonA += (tgtSky.moonA - sky.moonA) * sk;
   sky.starA += (tgtSky.starA - sky.starA) * sk;
   var lightDir = norm3(sky.light), sunDirN = norm3(sky.sunDir), moonDirN = norm3(sky.moonDir);
+
+  // weather: pick a new sky mood now and then, drift toward it
+  var fw = qs.get('weather');
+  if (fw && WEATHERS[fw]) wName = fw;
+  else if (t > nextWeather) {
+    var pick = W_POOL[Math.floor(Math.random() * W_POOL.length)];
+    if (pick !== wName) { wName = pick; if (pick !== 'clear') banner(pick === 'rain' ? 'A STORM ROLLS IN' : pick === 'duststorm' ? 'DUST ON THE HORIZON' : 'THE WIND PICKS UP'); }
+    nextWeather = t + 24 + Math.random() * 28;
+  }
+  var wT = WEATHERS[wName];
+  weather.gloom += (wT.gloom - weather.gloom) * sk;
+  weather.fogD += (wT.fogD - weather.fogD) * sk;
+  weather.wind += (wT.wind - weather.wind) * sk;
+  weather.rainK += (wT.rainK - weather.rainK) * sk;
+  weather.dustK += (wT.dustK - weather.dustK) * sk;
+  weather.gcol = mix3(weather.gcol, wT.gcol, sk);
+  if (wName === 'rain' && weather.gloom > 0.3 && t > nextBolt) {
+    if (nextBolt > 0) lightning();
+    nextBolt = t + 6 + Math.random() * 12;
+  }
+  // gloom-adjusted display colors (never mutate the sky state itself)
+  var gK = weather.gloom;
+  var dTop = mix3(sky.top, weather.gcol, gK), dMid = mix3(sky.mid, weather.gcol, gK);
+  var dHor = mix3(sky.hor, weather.gcol, gK);
+  var dAmb = mix3(sky.amb, scale3(weather.gcol, 0.55), gK * 0.7);
+  var dL = scale3(sky.l, 1 - gK * 0.55);
+  dtGlobal = dt;
 
   // camera: slow auto-orbit unless the user has taken the reins
   if (!RM && t - lastPointer > 8 && !dragging) cam.yaw += dt * 0.045;
@@ -771,17 +1268,75 @@ function frame(ms) {
   // roof robber respawn
   if (!roof.alive && t > roof.respawnAt) roof.alive = true;
 
-  // rebuild click targets
+  // the beast: spawn, approach from up the line, attack, die
+  if (!beast && !roundOver && t > nextBeast) spawnBeast();
+  if (beast) {
+    var bst = beast;
+    bst.flashT = Math.max(0, bst.flashT - dt);
+    if (bst.state === 'approach') {
+      bst.x -= bst.def.speed * dt;
+      if (bst.x <= bst.def.attackX) bst.state = 'attack';
+    } else if (bst.state === 'attack') {
+      if (!roundOver) {
+        bst.stealT += dt;
+        if (bst.stealT > 5) {
+          bst.stealT = 0;
+          if (gold > 0) {
+            gold--; goldHUD();
+            floater(bst.sx || W / 2, (bst.sy || H * 0.3) + 20, bst.def.steal, true);
+            if (gold === 0) endRound();
+          }
+        }
+      }
+    } else if (bst.state === 'dying') {
+      bst.vy -= 11 * dt; bst.y += bst.vy * dt; bst.rot += dt * 2.5; bst.x -= dt * 2;
+      if (bst.y <= (bst.ty === 'dino' ? -1.6 : 0.6)) {
+        dustBurst(bst.x, 0.6, bst.z, 14);
+        beast = null;
+        nextBeast = t + 26 + Math.random() * 26;
+      }
+    }
+    if (beast) drawBeast(dynB, bst, t);
+  }
+
+  // rebuild click targets (riding + escaping-with-gold outlaws, the roof man, the beast)
   targets.length = 0;
   for (var tI = 0; tI < horses.length; tI++) {
     var hh = horses[tI];
-    if (hh.state !== 'riding') continue;
-    var sp = project(vp, [hh.curX, 2.7, hh.z], W, H);
-    if (sp) targets.push({ sx: sp[0], sy: sp[1], r: Math.min(80, Math.max(16, 620 / sp[2])), horse: hh });
+    if (hh.state !== 'riding' && hh.state !== 'escaping') continue;
+    var hz2 = hh.state === 'escaping' ? hh.fleeZ : hh.z;
+    var sp = project(vp, [hh.curX, 2.7, hz2], W, H);
+    if (sp) {
+      hh.sx = sp[0]; hh.sy = sp[1];
+      targets.push({ sx: sp[0], sy: sp[1], r: TOUCH * Math.min(80, Math.max(16, 620 / sp[2])), horse: hh });
+    }
   }
   if (roof.alive) {
     var rp = project(vp, [-5.7, 4.1, 0.1], W, H);
-    if (rp) targets.push({ sx: rp[0], sy: rp[1], r: Math.min(80, Math.max(16, 620 / rp[2])), roofHit: true });
+    if (rp) targets.push({ sx: rp[0], sy: rp[1], r: TOUCH * Math.min(80, Math.max(16, 620 / rp[2])), roofHit: true });
+  }
+  if (beast && beast.state !== 'dying') {
+    var bp = project(vp, [beast.x, beast.y + (beast.ty === 'dino' ? 3 : 0), beast.z], W, H);
+    if (bp) {
+      beast.sx = bp[0]; beast.sy = bp[1];
+      targets.push({ sx: bp[0], sy: bp[1], r: TOUCH * Math.min(130, Math.max(30, 1000 / bp[2])), beastHit: true });
+    }
+  }
+
+  // reload completes; whistle now and then; bandits' shots crack faintly
+  if (reloading && t > reloadEnd) { reloading = false; ammo = AMMO_MAX; ammoHUD(); }
+  if (AC && !muted) {
+    if (t > nextWhistle) { whistle(); nextWhistle = t + 20 + Math.random() * 25; }
+    for (var sI = 0; sI < horses.length; sI++) {
+      var sh = horses[sI];
+      if (!sh.gun || sh.state === 'gone' || sh.state === 'fleeing') { sh.wasF = false; continue; }
+      var sf = ((tNow * 0.55 + sh.fo) % 1 + 1) % 1;
+      if (sf < 0.05 && !sh.wasF) distantShot();
+      sh.wasF = sf < 0.05;
+    }
+    var rf = ((tNow * 0.5 + 0.45) % 1 + 1) % 1;
+    if (roof.alive && rf < 0.05 && !roof.wasF) distantShot();
+    roof.wasF = rf < 0.05;
   }
 
   // chimney smoke + wheel steam + trailing dust
@@ -806,6 +1361,7 @@ function frame(ms) {
     if (p.age >= p.life) { parts.splice(pI, 1); continue; }
     p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
     p.vy += p.g * dt; p.vx *= (1 - dt * 0.6);
+    p.vx += weather.wind * dt * 0.35;
     var kp = p.age / p.life, sz2 = p.s0 + (p.s1 - p.s0) * kp, al = p.a0 * (1 - kp);
     var rx = right[0]*sz2, ry = right[1]*sz2, rz = right[2]*sz2;
     var ux = upv[0]*sz2, uy = upv[1]*sz2, uz = upv[2]*sz2;
@@ -825,9 +1381,35 @@ function frame(ms) {
   partB.vert([lampP[0], lampP[1]+lr, lampP[2]+lr], [0,1,0], 2.2, 1.8, 1.1, la);
   partB.vert([lampP[0], lampP[1]-lr, lampP[2]+lr], [0,1,0], 2.2, 1.8, 1.1, la);
 
+  // precipitation: stateless streaks drawn fresh each frame around the camera
+  var up3 = [0, 1, 0];
+  if (weather.rainK > 0.03) {
+    var rn = Math.floor(150 * weather.rainK);
+    for (var rI = 0; rI < rn; rI++) {
+      var rx2 = eye[0] + fwd[0] * 14 + (Math.random() - 0.5) * 46;
+      var rz2 = eye[2] + fwd[2] * 14 + (Math.random() - 0.5) * 46;
+      var ry2 = 1 + Math.random() * 15;
+      var slant = weather.wind * 0.03;
+      partB.vert([rx2 - 0.015, ry2, rz2], up3, 0.75, 0.8, 0.92, 0.26 * weather.rainK);
+      partB.vert([rx2 + 0.015, ry2, rz2], up3, 0.75, 0.8, 0.92, 0.26 * weather.rainK);
+      partB.vert([rx2 + slant, ry2 - 1.0, rz2], up3, 0.75, 0.8, 0.92, 0.1);
+    }
+  }
+  if (weather.dustK > 0.03) {
+    var dn = Math.floor(120 * weather.dustK);
+    for (var dI = 0; dI < dn; dI++) {
+      var dx2 = eye[0] + fwd[0] * 14 + (Math.random() - 0.5) * 50;
+      var dz2 = eye[2] + fwd[2] * 14 + (Math.random() - 0.5) * 50;
+      var dy2 = 0.3 + Math.random() * 6;
+      partB.vert([dx2, dy2 - 0.03, dz2], up3, 0.85, 0.7, 0.5, 0.2 * weather.dustK);
+      partB.vert([dx2, dy2 + 0.03, dz2], up3, 0.85, 0.7, 0.5, 0.2 * weather.dustK);
+      partB.vert([dx2 - 1.4, dy2, dz2 + 0.2], up3, 0.85, 0.7, 0.5, 0.06);
+    }
+  }
+
   /* ---- draw ---- */
   gl.disable(gl.CULL_FACE);
-  gl.clearColor(sky.hor[0], sky.hor[1], sky.hor[2], 1);
+  gl.clearColor(dHor[0], dHor[1], dHor[2], 1);
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
   // sky
@@ -835,7 +1417,7 @@ function frame(ms) {
   gl.useProgram(skyProg);
   gl.uniform3fv(U.sFwd, fwd); gl.uniform3fv(U.sRight, right); gl.uniform3fv(U.sUp, upv);
   gl.uniform3fv(U.sSunDir, sunDirN); gl.uniform3fv(U.sMoonDir, moonDirN);
-  gl.uniform3fv(U.sTop, sky.top); gl.uniform3fv(U.sMid, sky.mid); gl.uniform3fv(U.sHor, sky.hor);
+  gl.uniform3fv(U.sTop, dTop); gl.uniform3fv(U.sMid, dMid); gl.uniform3fv(U.sHor, dHor);
   gl.uniform1f(U.sTanF, Math.tan(fov / 2)); gl.uniform1f(U.sAspect, w / hpx);
   gl.uniform1f(U.sSunA, sky.sunA); gl.uniform1f(U.sMoonA, sky.moonA); gl.uniform1f(U.sStarA, sky.starA);
   gl.uniform1f(U.sT, t);
@@ -850,8 +1432,9 @@ function frame(ms) {
   gl.disable(gl.BLEND);
   gl.useProgram(mainProg);
   gl.uniformMatrix4fv(U.VP, false, new Float32Array(vp));
-  gl.uniform3fv(U.Eye, eye); gl.uniform3fv(U.Sun, lightDir); gl.uniform3fv(U.FogC, sky.hor);
-  gl.uniform3fv(U.Amb, sky.amb); gl.uniform3fv(U.LCol, sky.l); gl.uniform3fv(U.Fill, sky.fill);
+  gl.uniform3fv(U.Eye, eye); gl.uniform3fv(U.Sun, lightDir); gl.uniform3fv(U.FogC, dHor);
+  gl.uniform3fv(U.Amb, dAmb); gl.uniform3fv(U.LCol, dL); gl.uniform3fv(U.Fill, sky.fill);
+  gl.uniform1f(U.FogD, weather.fogD);
   bindAndDraw(staticVBO, null, staticB.n);
   bindAndDraw(dynVBO, dynB.f.subarray(0, dynB.n * 10), dynB.n);
 
@@ -864,7 +1447,7 @@ function frame(ms) {
 
   requestAnimationFrame(frame);
 }
-updateHUD();
+updateHUD(); goldHUD(); ammoHUD();
 requestAnimationFrame(frame);
 
 })();

@@ -234,13 +234,100 @@ cowcatcher, oversized mesas) was found from a screenshot, not from the code.
    derive everything from it. Random per-object colors are what make scenes
    look AI-generated.
 
-## 10. Files
+## 10. Turning the animation into a game (v2 additions)
+
+The scene later became a shooting gallery. The techniques, in build order:
+
+**Hit detection without raycasting.** Don't intersect rays with boxes. Each
+frame, project each shootable outlaw's chest point to screen space with the
+same view-projection matrix you render with:
+`clip = VP * worldPos; screen = ((clip.xy/clip.w)*0.5+0.5) * canvasSize` (flip
+y). Store `{sx, sy, r}` per target where the click radius `r = clamp(620/clip.w,
+16, 80)` px shrinks with distance. A click is a hit if it lands within `r` of a
+target. ~15 lines, no acceleration structures, and "generous hitbox" is a
+one-constant tune.
+
+**Click vs drag on one pointer.** pointerdown records position+time; pointerup
+fires only if total movement < 7px and duration < 400ms. Otherwise it was a
+camera drag. This one branch makes mouse AND touch work with zero extra code.
+
+**State machines, not booleans.** Each horse is `riding → fleeing (shot) |
+escaping (stole gold) → gone → riding`. The shot rider becomes a separate
+"faller" object with ballistic motion (`vy -= 9.5*dt`, tumble rotation, rest on
+sand, then scroll away with the world). Respawn = reset state + a `catchup`
+offset that starts at -26 and decays to 0, so he visibly rides back in.
+
+**Stakes.** Any outlaw who rides unharried beside the train for N seconds
+steals a gold bag (N shrinks as your bounty grows — that's the whole
+difficulty ramp), then switches to `escaping`; shoot him before he's gone to
+recover the bag. Six bags lost = round over. Ammo is a 6-round cylinder with a
+1.8s reload; consecutive hits build a ×4 payout multiplier that a miss resets.
+
+**Synthesized audio — no files.** One WebAudio context, created inside the
+first click handler (autoplay policy). Gunshot = white-noise buffer through a
+lowpass whose cutoff sweeps 3200→180 Hz over 0.25s. Ricochet = sine sweeping
+2100→320 Hz. Train chug = looped noise through a 240 Hz lowpass, its gain
+modulated by a 3.6 Hz LFO. Whistle = two detuned sines (622/740 Hz) with a
+5 Hz vibrato oscillator wired into their frequency params. Every sound is
+~8 lines.
+
+**Day/night cycle.** A phase machine (sunset → night → dawn → day) with
+randomized 22–40s durations. Each phase evaluates to a full lighting rig —
+sky tri-gradient, fog/horizon color, light direction+color, ambient, sun/moon
+disc visibility, star alpha — and the live rig exponentially smooths toward it
+(`cur += (target-cur) * (1-exp(-dt/1.6))`), so transitions never pop. Moon
+rise and sunrise are just elevation animated by phase progress. Stars are a
+hash of the ray direction in the sky shader (`fract(sin(dot(floor(dir*170),
+k))*43758.5)` over a threshold), twinkled by a time uniform. Keep fog, horizon,
+and clearColor identical at all times or the seam shows. Debug any phase with
+`?phase=night` etc.
+
+**Weather as a second, independent mood axis.** Same pattern as day/night: a
+target state (`clear / windy / duststorm / rain`) picked randomly every ~25–50s,
+smoothed toward. Each state is `{gloom, fogDensity, wind, rainK, dustK,
+gloomColor}`. Gloom mixes the *display copies* of the sky/ambient colors toward
+a gray (rain) or sandy (dust) tone — never mutate the day/night state itself,
+or the two systems corrupt each other. Fog density becomes a shader uniform.
+Rain and dust are **stateless streaks**: ~150 thin triangles scattered fresh
+around the camera every frame — no particle bookkeeping, and "intensity" is
+just the count. Lightning is a white full-screen div flashed to opacity 0.5
+for 70ms plus a filtered-noise thunder rumble. Wind is a number added to every
+particle's x-velocity.
+
+**Boss monsters (multi-hit targets).** One `beast` at a time — dragon, T-rex,
+or UFO — spawns up the line (`x = +62`, the direction the train is heading,
+opposite the bandits) and closes slowly. State machine: `approach → attack →
+dying`. Attacking beasts drain a gold bag every 5s (dragon breathes fire
+particles at the loco, the UFO hovers over the train with a translucent green
+beam made of two nested alpha boxes). They take 3–5 hits: each hit sets a
+`flashT` timer and every body part's color runs through a `bcol()` helper that
+whites it out while `flashT > 0` — the classic hit-flash, one function. Death
+is ballistic (vy, tumble, dust burst on impact). Test any of it instantly with
+`?beast=dragon|dino|ufo` and `?weather=rain|duststorm|windy`.
+
+**Phone support** costs almost nothing if you used pointer events from the
+start: `touch-action: none` on the canvas (otherwise the browser eats your
+drags as scrolling), hitbox radii ×1.4 when `'ontouchstart' in window`, and a
+media query that collapses the HUD below 700px.
+
+**Shared leaderboard on a static site.** Firebase Realtime Database over plain
+REST — no SDK, keeping the zero-dependency rule: `GET
+<db>/scores.json?orderBy="s"&limitToLast=10` and `POST {n, s, t:{'.sv':
+'timestamp'}}`. Security lives in the database rules (public read; writes must
+be new, shaped `{n: string ≤12, s: number ≤100000, t: server-time}`), which
+require `.indexOn: ["s"]` for the query. Client-submitted scores are spoofable
+by curl — acceptable for a toy, fixable later with a Cloudflare Worker proxy.
+
+## 11. Files
 
 | File | What it is |
 |---|---|
-| `train-robbery.html` | the complete scene — open it in any browser |
+| `index.html` | the complete game — this is what GitHub Pages serves |
+| `train-robbery.html` | same file, original name |
+| `preview.png` | Open Graph image for link unfurls |
 | `README.md` | this guide |
 
 Ideas if you want to extend it: a second track with a passing train, a canyon
 bridge section spliced into the scroll cycle, lasso physics (a swinging chain
-of 5–6 segments), day/night cycle by lerping the sun direction and palette.
+of 5–6 segments), wave structure with a "WANTED" boss outlaw, a Cloudflare
+Worker to make the leaderboard tamper-resistant.
