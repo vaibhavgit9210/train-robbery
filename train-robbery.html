@@ -3,8 +3,7 @@
 <title>The Iron Horse Hold-Up</title>
 <style>
   html, body { height: 100%; margin: 0; background: #1a120c; overflow: hidden; }
-  canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; cursor: grab; }
-  canvas:active { cursor: grabbing; }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; cursor: none; }
   .vignette {
     position: fixed; inset: 0; pointer-events: none;
     background: radial-gradient(ellipse at 50% 45%, transparent 55%, rgba(26, 14, 6, 0.55) 100%);
@@ -20,9 +19,28 @@
   .rule { width: 120px; margin: 10px auto 0; border: 0; border-top: 1px solid rgba(243, 227, 195, 0.4); }
   .hint {
     position: fixed; right: 18px; bottom: 14px; pointer-events: none;
-    color: rgba(243, 227, 195, 0.55); font-family: Georgia, serif; font-style: italic; font-size: 12px;
+    color: rgba(243, 227, 195, 0.6); font-family: Georgia, serif; font-style: italic; font-size: 12px;
     letter-spacing: 0.06em; text-shadow: 0 1px 4px rgba(30, 12, 2, 0.8);
   }
+  .bounty {
+    position: fixed; top: 16px; right: 16px; pointer-events: none; text-align: center;
+    color: #F3E3C3; font-family: 'Iowan Old Style', 'Palatino', Georgia, serif;
+    border: 3px double rgba(243, 227, 195, 0.55); border-radius: 3px;
+    padding: 8px 16px 9px; background: rgba(30, 15, 5, 0.35); transform: rotate(1.2deg);
+    text-shadow: 0 1px 4px rgba(30, 12, 2, 0.8);
+  }
+  .bounty .b-label { font-size: 9px; letter-spacing: 0.3em; opacity: 0.75; text-transform: uppercase; }
+  .bounty .b-val { font-size: 26px; font-weight: 700; margin: 2px 0; font-variant-numeric: tabular-nums; }
+  .bounty .b-sub { font-size: 10px; font-style: italic; opacity: 0.8; }
+  #xh { position: fixed; left: 0; top: 0; width: 30px; height: 30px; margin: -15px 0 0 -15px;
+        pointer-events: none; opacity: 0; }
+  #xh::before, #xh::after { content: ''; position: absolute; background: rgba(243, 227, 195, 0.9);
+        box-shadow: 0 0 3px rgba(0,0,0,0.7); }
+  #xh::before { left: 14px; top: 0; width: 2px; height: 30px; }
+  #xh::after { top: 14px; left: 0; height: 2px; width: 30px; }
+  .fl { position: fixed; pointer-events: none; color: #ffd98a; font: italic 700 17px Georgia, serif;
+        text-shadow: 0 1px 4px rgba(0,0,0,0.9); animation: flup 0.9s ease-out forwards; }
+  @keyframes flup { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(-44px); } }
   .fallback { color: #F3E3C3; font-family: Georgia, serif; padding: 40px; text-align: center; }
 </style>
 
@@ -34,7 +52,13 @@
   <div class="sub">Somewhere in the Territories &mdash; 1879</div>
   <hr class="rule">
 </div>
-<div class="hint">drag to look around &middot; scroll to zoom</div>
+<div class="bounty">
+  <div class="b-label">Bounty collected</div>
+  <div class="b-val" id="bounty">$0</div>
+  <div class="b-sub" id="downs">the gang rides free</div>
+</div>
+<div class="hint">shoot the outlaws &middot; drag to look &middot; scroll to zoom</div>
+<div id="xh"></div>
 
 <script id="main">
 'use strict';
@@ -144,28 +168,35 @@ var mainProg = makeProg(
   'precision highp float;' +
   'varying vec4 vC; varying vec3 vN; varying vec3 vW;' +
   'uniform vec3 uSun; uniform vec3 uFogC; uniform vec3 uEye;' +
+  'uniform vec3 uAmb; uniform vec3 uLCol; uniform vec3 uFill;' +
   'void main(){ vec3 n = normalize(vN);' +
   ' float dif = max(dot(n, uSun), 0.0); float sky = max(n.y, 0.0);' +
-  ' vec3 col = vC.rgb * (vec3(0.40, 0.35, 0.33) + vec3(1.05, 0.80, 0.58) * dif + vec3(0.16, 0.19, 0.25) * sky);' +
+  ' vec3 col = vC.rgb * (uAmb + uLCol * dif + uFill * sky);' +
   ' float fog = 1.0 - exp(-distance(vW, uEye) * 0.0036);' +
   ' col = mix(col, uFogC, clamp(fog, 0.0, 1.0));' +
   ' gl_FragColor = vec4(col, vC.a); }'
 );
 var skyProg = makeProg(
   'attribute vec2 aP; varying vec2 vP; void main(){ vP = aP; gl_Position = vec4(aP, 0.9999, 1.0); }',
-  'precision mediump float; varying vec2 vP;' +
-  'uniform vec3 uFwd; uniform vec3 uRight; uniform vec3 uUp; uniform vec3 uSun;' +
+  'precision highp float; varying vec2 vP;' +
+  'uniform vec3 uFwd; uniform vec3 uRight; uniform vec3 uUp;' +
+  'uniform vec3 uSunDir; uniform vec3 uMoonDir;' +
+  'uniform vec3 uTop; uniform vec3 uMid; uniform vec3 uHor;' +
   'uniform float uTanF; uniform float uAspect;' +
+  'uniform float uSunA; uniform float uMoonA; uniform float uStarA; uniform float uT;' +
   'void main(){' +
   ' vec3 dir = normalize(uFwd + vP.x * uAspect * uTanF * uRight + vP.y * uTanF * uUp);' +
   ' float h = clamp(dir.y, 0.0, 1.0);' +
-  ' vec3 horizon = vec3(0.937, 0.729, 0.522);' +
-  ' vec3 mid = vec3(0.831, 0.510, 0.373);' +
-  ' vec3 top = vec3(0.353, 0.427, 0.576);' +
-  ' vec3 col = mix(horizon, mid, smoothstep(0.0, 0.16, h));' +
-  ' col = mix(col, top, smoothstep(0.13, 0.62, h));' +
-  ' float s = max(dot(dir, uSun), 0.0);' +
-  ' col += vec3(1.0, 0.87, 0.66) * (smoothstep(0.9993, 0.99975, s) * 0.9 + pow(s, 9.0) * 0.28);' +
+  ' vec3 col = mix(uHor, uMid, smoothstep(0.0, 0.16, h));' +
+  ' col = mix(col, uTop, smoothstep(0.13, 0.62, h));' +
+  ' float s = max(dot(dir, uSunDir), 0.0);' +
+  ' col += vec3(1.0, 0.87, 0.66) * uSunA * (smoothstep(0.9993, 0.99975, s) * 0.9 + pow(s, 9.0) * 0.28);' +
+  ' float mo = max(dot(dir, uMoonDir), 0.0);' +
+  ' col += vec3(0.82, 0.86, 0.95) * uMoonA * (smoothstep(0.99955, 0.99985, mo) * 0.85 + pow(mo, 40.0) * 0.12);' +
+  ' vec3 cell = floor(dir * 170.0);' +
+  ' float hs = fract(sin(dot(cell, vec3(12.9898, 78.233, 37.719))) * 43758.5453);' +
+  ' float tw = 0.7 + 0.3 * sin(uT * 2.5 + hs * 40.0);' +
+  ' col += vec3(0.9, 0.93, 1.0) * step(0.9982, hs) * uStarA * tw * smoothstep(0.03, 0.2, dir.y);' +
   ' gl_FragColor = vec4(col, 1.0); }'
 );
 var A = {
@@ -179,17 +210,55 @@ var U = {
   Eye: gl.getUniformLocation(mainProg, 'uEye'),
   Sun: gl.getUniformLocation(mainProg, 'uSun'),
   FogC: gl.getUniformLocation(mainProg, 'uFogC'),
+  Amb: gl.getUniformLocation(mainProg, 'uAmb'),
+  LCol: gl.getUniformLocation(mainProg, 'uLCol'),
+  Fill: gl.getUniformLocation(mainProg, 'uFill'),
   sFwd: gl.getUniformLocation(skyProg, 'uFwd'),
   sRight: gl.getUniformLocation(skyProg, 'uRight'),
   sUp: gl.getUniformLocation(skyProg, 'uUp'),
-  sSun: gl.getUniformLocation(skyProg, 'uSun'),
+  sSunDir: gl.getUniformLocation(skyProg, 'uSunDir'),
+  sMoonDir: gl.getUniformLocation(skyProg, 'uMoonDir'),
+  sTop: gl.getUniformLocation(skyProg, 'uTop'),
+  sMid: gl.getUniformLocation(skyProg, 'uMid'),
+  sHor: gl.getUniformLocation(skyProg, 'uHor'),
   sTanF: gl.getUniformLocation(skyProg, 'uTanF'),
-  sAspect: gl.getUniformLocation(skyProg, 'uAspect')
+  sAspect: gl.getUniformLocation(skyProg, 'uAspect'),
+  sSunA: gl.getUniformLocation(skyProg, 'uSunA'),
+  sMoonA: gl.getUniformLocation(skyProg, 'uMoonA'),
+  sStarA: gl.getUniformLocation(skyProg, 'uStarA'),
+  sT: gl.getUniformLocation(skyProg, 'uT')
 };
 
+/* ---------------- day / night cycle ---------------- */
+var PH = {
+  day:    { top: C('#5E97CF'), mid: C('#A8C4DE'), hor: C('#E4D3B4'), l: [1.02, 0.98, 0.90], amb: [0.52, 0.50, 0.48], fill: [0.18, 0.22, 0.28] },
+  sunset: { top: C('#5A6D93'), mid: C('#D4825F'), hor: C('#EFBA85'), l: [1.05, 0.80, 0.58], amb: [0.40, 0.35, 0.33], fill: [0.16, 0.19, 0.25] },
+  night:  { top: C('#070C1E'), mid: C('#101A33'), hor: C('#24304E'), l: [0.30, 0.36, 0.52], amb: [0.10, 0.12, 0.19], fill: [0.05, 0.07, 0.12] },
+  dawn:   { top: C('#6D7BA4'), mid: C('#DE8F86'), hor: C('#F4C6A0'), l: [0.95, 0.72, 0.62], amb: [0.34, 0.31, 0.34], fill: [0.15, 0.18, 0.26] }
+};
+var ORDER = ['sunset', 'night', 'dawn', 'day'];
+var SUN_AZ = 2.61, MOON_AZ = -0.9;
+function dirEl(az, elDeg) { var el = elDeg * Math.PI / 180; return [Math.cos(el) * Math.sin(az), Math.sin(el), Math.cos(el) * Math.cos(az)]; }
+function evalPhase(name, k) {
+  var p = PH[name], sunEl = 20, sunA = 1, moonA = 0, starA = 0, moonEl = 10;
+  if (name === 'day')    { sunEl = 55 - 30 * k; }
+  if (name === 'sunset') { sunEl = 16 - 15 * k; }
+  if (name === 'night')  { sunA = 0; moonA = 1; starA = 1; moonEl = 4 + 44 * k; }
+  if (name === 'dawn')   { sunEl = -2 + 24 * k; sunA = Math.min(1, Math.max(0, (k - 0.1) / 0.2));
+                           moonA = Math.max(0, 1 - k * 2.5); starA = Math.max(0, 1 - k * 3); moonEl = 48 - 38 * k; }
+  var sunDir = dirEl(SUN_AZ, sunEl), moonDir = dirEl(MOON_AZ, moonEl);
+  return { top: p.top, mid: p.mid, hor: p.hor, l: p.l, amb: p.amb, fill: p.fill,
+           sunDir: sunDir, moonDir: moonDir, sunA: sunA, moonA: moonA, starA: starA,
+           light: (name === 'night') ? moonDir : sunDir };
+}
+var qs = new URLSearchParams(location.search);
+var forced = qs.get('phase');
+var phaseName = (forced && PH[forced]) ? forced : 'sunset';
+var phaseT0 = 0, phaseDur = 22 + Math.random() * 18;
+var sky = JSON.parse(JSON.stringify(evalPhase(phaseName, 0)));
+function lerpA(a, b, k) { for (var i = 0; i < a.length; i++) a[i] += (b[i] - a[i]) * k; }
+
 /* ---------------- palette ---------------- */
-var SUN = norm3([0.42, 0.26, -0.72]);
-var FOGC = C('#EFBA85');
 var COL = {
   sand: C('#C08552'), ballast: C('#6b5c4c'), sleeper: C('#4a3526'), rail: C('#494e54'),
   iron: C('#26221f'), ironLight: C('#3a352f'), brass: C('#a9793a'), cabRed: C('#5f2b1e'),
@@ -262,6 +331,39 @@ function spawn(x, y, z, vx, vy, vz, life, s0, s1, col, a0, grav) {
   if (parts.length > 620) parts.shift();
   parts.push({ x:x, y:y, z:z, vx:vx, vy:vy, vz:vz, life:life, age:0, s0:s0, s1:s1, c:col, a0:a0, g:grav });
 }
+function dustBurst(x, y, z, n) {
+  for (var i = 0; i < n; i++) {
+    spawn(x, y, z, -SPEED * 0.4 + (Math.random()-0.5) * 3, 0.8 + Math.random() * 1.6, (Math.random()-0.5) * 3,
+          0.7 + Math.random() * 0.5, 0.2, 1.0, C('#c9a06a'), 0.5, -0.8);
+  }
+}
+
+/* ---------------- game state ---------------- */
+var score = 0;
+var roof = { alive: true, respawnAt: 0 };
+var fallers = [];
+var shakeUntil = -1;
+var bountyEl = document.getElementById('bounty');
+var downsEl = document.getElementById('downs');
+function updateHUD() {
+  bountyEl.textContent = '$' + (score * 50);
+  downsEl.textContent = score === 0 ? 'the gang rides free' : score + (score === 1 ? ' outlaw' : ' outlaws') + ' brought down';
+}
+function floater(x, y, text) {
+  var el = document.createElement('div');
+  el.className = 'fl'; el.textContent = text;
+  el.style.left = (x - 20) + 'px'; el.style.top = (y - 24) + 'px';
+  document.body.appendChild(el);
+  setTimeout(function () { el.remove(); }, 950);
+}
+function project(vp, p, W, H) {
+  var x = vp[0]*p[0] + vp[4]*p[1] + vp[8]*p[2] + vp[12];
+  var y = vp[1]*p[0] + vp[5]*p[1] + vp[9]*p[2] + vp[13];
+  var w = vp[3]*p[0] + vp[7]*p[1] + vp[11]*p[2] + vp[15];
+  if (w <= 0.1) return null;
+  return [(x/w*0.5 + 0.5) * W, (1 - (y/w*0.5 + 0.5)) * H, w];
+}
+var targets = [];   // rebuilt each frame: {sx, sy, r, horse | roofHit}
 
 /* ---------------- the train ---------------- */
 var SPEED = 9;
@@ -341,12 +443,14 @@ function drawTrain(B, t, scroll) {
   // couplings loco->tender->car1
   B.box(T(2.05, 1.05, 0), 0.5, 0.12, 0.2, COL.iron);
   // robber up on car two's roof, crouched and firing forward
-  var mRb = chain(T(-5.7, 3.32, 0.1), RY(0.15), RZ(-0.12));
-  drawBandit(B, mRb, t, 0.55, C('#413d3a'), C('#2e2620'), true, t * 0.5 + 0.45);
+  if (roof.alive) {
+    var mRb = chain(T(-5.7, 3.32, 0.1), RY(0.15), RZ(-0.12));
+    drawBandit(B, mRb, t, 0.55, C('#413d3a'), C('#2e2620'), true, t * 0.5 + 0.45);
+  }
   return loco;
 }
 
-/* ---------------- bandit figure (shared by riders & roof man) ----------------
+/* ---------------- bandit figure (shared by riders, roof man & fallers) ----------------
    m = frame at his seat/feet; crouch 0..1 */
 function drawBandit(B, m, t, crouch, coat, hat, gun, flashPhase) {
   var mR = chain(m, RZ(0.15 + crouch * 0.45));
@@ -391,22 +495,25 @@ function drawBandit(B, m, t, crouch, coat, hat, gun, flashPhase) {
   }
 }
 
-/* ---------------- horses ---------------- */
+/* ---------------- horses & the gang ---------------- */
 var horses = [
   { z: 2.9,  x0: -2.8,  ph: 0.00, sw: 0.55, col: C('#6E4A33'), coat: C('#5a5148'), hat: C('#3d3128'), gun: true,  fo: 0.15 },
   { z: 4.4,  x0: -7.6,  ph: 0.37, sw: 0.42, col: C('#4a3629'), coat: C('#6b5f52'), hat: C('#6e5a41'), gun: true,  fo: 0.62 },
   { z: 3.5,  x0: -12.4, ph: 0.64, sw: 0.66, col: C('#7a5a3a'), coat: C('#54442f'), hat: C('#2e2620'), gun: false, fo: 0 },
   { z: -3.1, x0: -5.4,  ph: 0.82, sw: 0.48, col: C('#3E2E24'), coat: C('#584f41'), hat: C('#4a3a2c'), gun: true,  fo: 0.31 }
 ];
+for (var hInit = 0; hInit < horses.length; hInit++) {
+  horses[hInit].state = 'riding'; horses[hInit].catchup = 0;
+  horses[hInit].curX = horses[hInit].x0; horses[hInit].fleeZ = horses[hInit].z;
+}
 var LEG = [
   { sx: 0.55, ph: 0.55 }, { sx: 0.55, ph: 0.80 },   // front L/R (as fractions of cycle)
   { sx: -0.55, ph: 0.00 }, { sx: -0.55, ph: 0.25 }  // hind L/R
 ];
-function drawHorse(B, h, t, dt) {
+function drawHorseBody(B, h, t, dt, x, z, withRider) {
   var cyc = (t * 2.55 + h.ph) * Math.PI * 2;
-  var x = h.x0 + Math.sin(t * h.sw + h.ph * 6.0) * 2.3;
   var y = 1.18 + Math.sin(cyc) * 0.1;
-  var mB = chain(T(x, y, h.z), RZ(Math.sin(cyc + 1.2) * 0.075));
+  var mB = chain(T(x, y, z), RZ(Math.sin(cyc + 1.2) * 0.075));
   var dark = [h.col[0] * 0.55, h.col[1] * 0.55, h.col[2] * 0.55];
   // body
   B.box(mB, 1.5, 0.62, 0.52, h.col);
@@ -438,14 +545,37 @@ function drawHorse(B, h, t, dt) {
     B.box(chain(mL, T(0.02, -0.44, 0)), 0.17, 0.09, 0.15, COL.hoof);
     // kick up dust when this hoof is planted
     if (Math.sin(lc) < -0.75 && Math.random() < dt * 22) {
-      spawn(x + L.sx, 0.12, h.z + sz, -SPEED * 0.55 + Math.random() * 2, 0.7 + Math.random() * 1.2, (Math.random() - 0.5) * 1.6,
+      spawn(x + L.sx, 0.12, z + sz, -SPEED * 0.55 + Math.random() * 2, 0.7 + Math.random() * 1.2, (Math.random() - 0.5) * 1.6,
             0.9 + Math.random() * 0.5, 0.16, 0.85, C('#c9a06a'), 0.42, -0.6);
     }
   }
   // saddle + rider
   B.box(chain(mB, T(-0.05, 0.33, 0)), 0.55, 0.1, 0.62, COL.bandana);
   B.box(chain(mB, T(-0.05, 0.4, 0)), 0.45, 0.1, 0.5, COL.leather);
-  drawBandit(B, chain(mB, T(-0.05, 0.42, 0), RZ(Math.sin(cyc) * 0.05)), t, 0.05, h.coat, h.hat, h.gun, t * 0.55 + h.fo);
+  if (withRider) {
+    drawBandit(B, chain(mB, T(-0.05, 0.42, 0), RZ(Math.sin(cyc) * 0.05)), t, 0.05, h.coat, h.hat, h.gun, t * 0.55 + h.fo);
+  }
+}
+function updateHorse(B, h, t, dt) {
+  if (h.state === 'riding') {
+    h.catchup = Math.min(0, h.catchup + dt * 6.5);
+    var x = h.x0 + h.catchup + Math.sin(t * h.sw + h.ph * 6.0) * 2.3;
+    h.curX = x;
+    drawHorseBody(B, h, t, dt, x, h.z, true);
+  } else if (h.state === 'fleeing') {
+    h.fleeX -= dt * 3.0;
+    h.fleeZ += dt * 4.5 * (h.z >= 0 ? 1 : -1);
+    drawHorseBody(B, h, t, dt, h.fleeX, h.fleeZ, false);
+    if (t - h.fleeStart > 4.2) { h.state = 'gone'; h.respawnAt = t + 3 + Math.random() * 5; }
+  } else if (t > h.respawnAt) {
+    h.state = 'riding'; h.catchup = -26; h.fleeZ = h.z;
+  }
+}
+function hitHorse(h, t) {
+  h.state = 'fleeing'; h.fleeStart = t; h.fleeX = h.curX; h.fleeZ = h.z;
+  fallers.push({ x: h.curX - 0.2, y: 2.5, z: h.z, vx: -5 - Math.random() * 2, vy: 2.6, vz: (Math.random() - 0.5) * 1.5,
+                 rot: 0, rotV: -6 - Math.random() * 4, coat: h.coat, hat: h.hat, rest: false });
+  dustBurst(h.curX, 1.5, h.z, 5);
 }
 
 /* ---------------- scenery pass ---------------- */
@@ -506,25 +636,58 @@ function drawScenery(B, t, scroll) {
   B.box(chain(mV, RX(-flap), T(0, 0, -0.6)), 0.32, 0.05, 1.2, COL.iron);
 }
 
-/* ---------------- camera ---------------- */
+/* ---------------- camera + shooting input ---------------- */
 var cam = { yaw: 0.5, pitch: 0.17, dist: 17.5 };
 var lastPointer = -10, dragging = false, px0 = 0, py0 = 0;
-canvas.addEventListener('pointerdown', function (e) { dragging = true; px0 = e.clientX; py0 = e.clientY; lastPointer = tNow; canvas.setPointerCapture(e.pointerId); });
+var downX = 0, downY = 0, downT = 0, moved = 0;
+var xh = document.getElementById('xh');
+canvas.addEventListener('pointerdown', function (e) {
+  dragging = true; px0 = downX = e.clientX; py0 = downY = e.clientY;
+  downT = tNow; moved = 0; lastPointer = tNow;
+  canvas.setPointerCapture(e.pointerId);
+});
 window.addEventListener('pointermove', function (e) {
+  xh.style.opacity = 1;
+  xh.style.transform = 'translate(' + e.clientX + 'px,' + e.clientY + 'px)';
   if (!dragging) return;
+  moved += Math.abs(e.clientX - px0) + Math.abs(e.clientY - py0);
   cam.yaw -= (e.clientX - px0) * 0.005; cam.pitch += (e.clientY - py0) * 0.004;
   cam.pitch = Math.min(0.9, Math.max(-0.05, cam.pitch));
   px0 = e.clientX; py0 = e.clientY; lastPointer = tNow;
 });
-window.addEventListener('pointerup', function () { dragging = false; });
+window.addEventListener('pointerup', function (e) {
+  dragging = false;
+  if (moved < 7 && tNow - downT < 0.4) fire(e.clientX, e.clientY);
+});
 canvas.addEventListener('wheel', function (e) {
   e.preventDefault();
   cam.dist = Math.min(48, Math.max(7, cam.dist * (1 + e.deltaY * 0.001)));
   lastPointer = tNow;
 }, { passive: false });
 
+function fire(cx, cy) {
+  if (!RM) shakeUntil = tNow + 0.1;
+  var best = null, bd = 1e9;
+  for (var i = 0; i < targets.length; i++) {
+    var tg = targets[i];
+    var d = Math.hypot(cx - tg.sx, cy - tg.sy);
+    if (d < tg.r && d < bd) { bd = d; best = tg; }
+  }
+  if (!best) return;
+  score++; updateHUD();
+  floater(best.sx, best.sy, '+$50');
+  if (best.roofHit) {
+    roof.alive = false; roof.respawnAt = tNow + 4 + Math.random() * 5;
+    fallers.push({ x: -5.7, y: 3.6, z: 0.1, vx: -4, vy: 1.6, vz: 2.4, rot: 0, rotV: -7,
+                   coat: C('#413d3a'), hat: C('#2e2620'), rest: false });
+    dustBurst(-5.7, 3.4, 0.5, 4);
+  } else {
+    hitHorse(best.horse, tNow);
+  }
+}
+
 /* ---------------- render loop ---------------- */
-function bindAndDraw(vbo, data, count, dynamic) {
+function bindAndDraw(vbo, data, count) {
   gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
   if (data) gl.bufferData(gl.ARRAY_BUFFER, data, gl.DYNAMIC_DRAW);
   gl.enableVertexAttribArray(A.P); gl.vertexAttribPointer(A.P, 3, gl.FLOAT, false, 40, 0);
@@ -545,6 +708,24 @@ function frame(ms) {
   var w = Math.round(canvas.clientWidth * dpr), hpx = Math.round(canvas.clientHeight * dpr);
   if (canvas.width !== w || canvas.height !== hpx) { canvas.width = w; canvas.height = hpx; }
   gl.viewport(0, 0, w, hpx);
+  var W = canvas.clientWidth, H = canvas.clientHeight;
+
+  // day/night cycle: random phase lengths, smooth crossfade
+  var k = Math.min(1, (t - phaseT0) / phaseDur);
+  if (!forced && t > phaseT0 + phaseDur) {
+    phaseName = ORDER[(ORDER.indexOf(phaseName) + 1) % ORDER.length];
+    phaseT0 = t; phaseDur = 22 + Math.random() * 18; k = 0;
+  }
+  if (forced) k = (t / 30) % 1;
+  var tgtSky = evalPhase(phaseName, k);
+  var sk = 1 - Math.exp(-dt / 1.6);
+  lerpA(sky.top, tgtSky.top, sk); lerpA(sky.mid, tgtSky.mid, sk); lerpA(sky.hor, tgtSky.hor, sk);
+  lerpA(sky.l, tgtSky.l, sk); lerpA(sky.amb, tgtSky.amb, sk); lerpA(sky.fill, tgtSky.fill, sk);
+  lerpA(sky.sunDir, tgtSky.sunDir, sk); lerpA(sky.moonDir, tgtSky.moonDir, sk); lerpA(sky.light, tgtSky.light, sk);
+  sky.sunA += (tgtSky.sunA - sky.sunA) * sk;
+  sky.moonA += (tgtSky.moonA - sky.moonA) * sk;
+  sky.starA += (tgtSky.starA - sky.starA) * sk;
+  var lightDir = norm3(sky.light), sunDirN = norm3(sky.sunDir), moonDirN = norm3(sky.moonDir);
 
   // camera: slow auto-orbit unless the user has taken the reins
   if (!RM && t - lastPointer > 8 && !dragging) cam.yaw += dt * 0.045;
@@ -562,11 +743,46 @@ function frame(ms) {
   var right = norm3(cross(fwd, [0,1,0]));
   var upv = cross(right, fwd);
 
+  // screen shake on gunfire
+  if (t < shakeUntil) {
+    canvas.style.transform = 'translate(' + ((Math.random()-0.5)*6) + 'px,' + ((Math.random()-0.5)*6) + 'px)';
+  } else if (canvas.style.transform) canvas.style.transform = '';
+
   // rebuild dynamic world
   dynB.n = 0; partB.n = 0;
   drawTrain(dynB, t, scroll);
   drawScenery(dynB, t, scroll);
-  for (var hI = 0; hI < horses.length; hI++) drawHorse(dynB, horses[hI], t, dt);
+  for (var hI = 0; hI < horses.length; hI++) updateHorse(dynB, horses[hI], t, dt);
+
+  // shot-down outlaws tumbling / sprawled on the sand
+  for (var fI = fallers.length - 1; fI >= 0; fI--) {
+    var fb = fallers[fI];
+    if (!fb.rest) {
+      fb.x += fb.vx * dt; fb.y += fb.vy * dt; fb.z += fb.vz * dt;
+      fb.vy -= 9.5 * dt; fb.rot += fb.rotV * dt;
+      if (fb.y < 0.38 && fb.vy < 0) { fb.y = 0.38; fb.rest = true; dustBurst(fb.x, 0.3, fb.z, 6); }
+    } else {
+      fb.x -= SPEED * dt;
+    }
+    if (fb.x < -70) { fallers.splice(fI, 1); continue; }
+    drawBandit(dynB, chain(T(fb.x, fb.y, fb.z), RY(fb.rot * 0.5), RZ(fb.rest ? 1.35 : fb.rot)),
+               t, fb.rest ? 0.1 : 0.5, fb.coat, fb.hat, false, 0);
+  }
+  // roof robber respawn
+  if (!roof.alive && t > roof.respawnAt) roof.alive = true;
+
+  // rebuild click targets
+  targets.length = 0;
+  for (var tI = 0; tI < horses.length; tI++) {
+    var hh = horses[tI];
+    if (hh.state !== 'riding') continue;
+    var sp = project(vp, [hh.curX, 2.7, hh.z], W, H);
+    if (sp) targets.push({ sx: sp[0], sy: sp[1], r: Math.min(80, Math.max(16, 620 / sp[2])), horse: hh });
+  }
+  if (roof.alive) {
+    var rp = project(vp, [-5.7, 4.1, 0.1], W, H);
+    if (rp) targets.push({ sx: rp[0], sy: rp[1], r: Math.min(80, Math.max(16, 620 / rp[2])), roofHit: true });
+  }
 
   // chimney smoke + wheel steam + trailing dust
   smokeAcc += dt;
@@ -590,7 +806,7 @@ function frame(ms) {
     if (p.age >= p.life) { parts.splice(pI, 1); continue; }
     p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
     p.vy += p.g * dt; p.vx *= (1 - dt * 0.6);
-    var k = p.age / p.life, sz2 = p.s0 + (p.s1 - p.s0) * k, al = p.a0 * (1 - k);
+    var kp = p.age / p.life, sz2 = p.s0 + (p.s1 - p.s0) * kp, al = p.a0 * (1 - kp);
     var rx = right[0]*sz2, ry = right[1]*sz2, rz = right[2]*sz2;
     var ux = upv[0]*sz2, uy = upv[1]*sz2, uz = upv[2]*sz2;
     var up2 = [0,1,0];
@@ -599,27 +815,30 @@ function frame(ms) {
     partB.vert(q0, up2, p.c[0], p.c[1], p.c[2], al); partB.vert(q1, up2, p.c[0], p.c[1], p.c[2], al); partB.vert(q2, up2, p.c[0], p.c[1], p.c[2], al);
     partB.vert(q0, up2, p.c[0], p.c[1], p.c[2], al); partB.vert(q2, up2, p.c[0], p.c[1], p.c[2], al); partB.vert(q3, up2, p.c[0], p.c[1], p.c[2], al);
   }
-  // headlamp glow
+  // headlamp glow (brighter at night)
   var lampP = [8.35, 2.6, 0];
-  var lr = 0.28;
-  partB.vert([lampP[0], lampP[1]-lr, lampP[2]-lr], [0,1,0], 2.2, 1.8, 1.1, 0.18);
-  partB.vert([lampP[0], lampP[1]+lr, lampP[2]-lr], [0,1,0], 2.2, 1.8, 1.1, 0.18);
-  partB.vert([lampP[0], lampP[1]+lr, lampP[2]+lr], [0,1,0], 2.2, 1.8, 1.1, 0.18);
-  partB.vert([lampP[0], lampP[1]-lr, lampP[2]-lr], [0,1,0], 2.2, 1.8, 1.1, 0.18);
-  partB.vert([lampP[0], lampP[1]+lr, lampP[2]+lr], [0,1,0], 2.2, 1.8, 1.1, 0.18);
-  partB.vert([lampP[0], lampP[1]-lr, lampP[2]+lr], [0,1,0], 2.2, 1.8, 1.1, 0.18);
+  var lr = 0.28 + sky.moonA * 0.22, la = 0.18 + sky.moonA * 0.4;
+  partB.vert([lampP[0], lampP[1]-lr, lampP[2]-lr], [0,1,0], 2.2, 1.8, 1.1, la);
+  partB.vert([lampP[0], lampP[1]+lr, lampP[2]-lr], [0,1,0], 2.2, 1.8, 1.1, la);
+  partB.vert([lampP[0], lampP[1]+lr, lampP[2]+lr], [0,1,0], 2.2, 1.8, 1.1, la);
+  partB.vert([lampP[0], lampP[1]-lr, lampP[2]-lr], [0,1,0], 2.2, 1.8, 1.1, la);
+  partB.vert([lampP[0], lampP[1]+lr, lampP[2]+lr], [0,1,0], 2.2, 1.8, 1.1, la);
+  partB.vert([lampP[0], lampP[1]-lr, lampP[2]+lr], [0,1,0], 2.2, 1.8, 1.1, la);
 
   /* ---- draw ---- */
   gl.disable(gl.CULL_FACE);
-  gl.clearColor(FOGC[0], FOGC[1], FOGC[2], 1);
+  gl.clearColor(sky.hor[0], sky.hor[1], sky.hor[2], 1);
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
   // sky
   gl.disable(gl.DEPTH_TEST);
   gl.useProgram(skyProg);
   gl.uniform3fv(U.sFwd, fwd); gl.uniform3fv(U.sRight, right); gl.uniform3fv(U.sUp, upv);
-  gl.uniform3fv(U.sSun, SUN);
+  gl.uniform3fv(U.sSunDir, sunDirN); gl.uniform3fv(U.sMoonDir, moonDirN);
+  gl.uniform3fv(U.sTop, sky.top); gl.uniform3fv(U.sMid, sky.mid); gl.uniform3fv(U.sHor, sky.hor);
   gl.uniform1f(U.sTanF, Math.tan(fov / 2)); gl.uniform1f(U.sAspect, w / hpx);
+  gl.uniform1f(U.sSunA, sky.sunA); gl.uniform1f(U.sMoonA, sky.moonA); gl.uniform1f(U.sStarA, sky.starA);
+  gl.uniform1f(U.sT, t);
   gl.bindBuffer(gl.ARRAY_BUFFER, skyVBO);
   gl.enableVertexAttribArray(A.skyP); gl.vertexAttribPointer(A.skyP, 2, gl.FLOAT, false, 0, 0);
   gl.drawArrays(gl.TRIANGLES, 0, 3);
@@ -631,7 +850,8 @@ function frame(ms) {
   gl.disable(gl.BLEND);
   gl.useProgram(mainProg);
   gl.uniformMatrix4fv(U.VP, false, new Float32Array(vp));
-  gl.uniform3fv(U.Eye, eye); gl.uniform3fv(U.Sun, SUN); gl.uniform3fv(U.FogC, FOGC);
+  gl.uniform3fv(U.Eye, eye); gl.uniform3fv(U.Sun, lightDir); gl.uniform3fv(U.FogC, sky.hor);
+  gl.uniform3fv(U.Amb, sky.amb); gl.uniform3fv(U.LCol, sky.l); gl.uniform3fv(U.Fill, sky.fill);
   bindAndDraw(staticVBO, null, staticB.n);
   bindAndDraw(dynVBO, dynB.f.subarray(0, dynB.n * 10), dynB.n);
 
@@ -644,6 +864,7 @@ function frame(ms) {
 
   requestAnimationFrame(frame);
 }
+updateHUD();
 requestAnimationFrame(frame);
 
 })();
