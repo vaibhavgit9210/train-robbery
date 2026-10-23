@@ -5,7 +5,7 @@
 <title>The Iron Horse Hold-Up</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23060a13'/%3E%3Ctext x='32' y='46' font-size='38' text-anchor='middle'%3E%F0%9F%A4%A0%3C/text%3E%3C/svg%3E">
 <meta property="og:title" content="The Iron Horse Hold-Up">
-<meta property="og:description" content="A 3D wild-west shooting gallery in one HTML file — defend the gold train from the outlaw gang. No libraries, no build step, just WebGL.">
+<meta property="og:description" content="A 3D wild-west shooting gallery in one HTML file: defend the gold train from the outlaw gang. No libraries, no build step, just WebGL.">
 <meta property="og:image" content="https://vaibhavgit9210.github.io/train-robbery/preview.png">
 <meta property="og:url" content="https://vaibhavgit9210.github.io/train-robbery/">
 <meta property="og:type" content="website">
@@ -147,7 +147,7 @@
 <div class="titles">
   <div class="eyebrow">A moving picture in three dimensions</div>
   <h1>The Iron Horse Hold-Up</h1>
-  <div class="sub">Somewhere in the Territories &mdash; 1879</div>
+  <div class="sub">Somewhere in the Territories, 1879</div>
   <hr class="rule">
 </div>
 <div class="bounty">
@@ -159,7 +159,7 @@
 <div class="hint">shoot the outlaws before they take the gold &middot; drag to look &middot; M mutes</div>
 <div id="ammo"></div>
 <div id="over"><div class="poster">
-  <div class="p-eyebrow">No. 1879 &mdash; Territories Express</div>
+  <div class="p-eyebrow">No. 1879 · Territories Express</div>
   <h2>The Train<br>Was Robbed</h2>
   <div class="p-big" id="finalB">$0</div>
   <div class="p-sm">your bounty this run &middot; personal best <span id="bestB">$0</span></div>
@@ -662,8 +662,8 @@ function ammoHUD() {
 }
 function renderBoard(arr) {
   var lb = document.getElementById('lb');
-  if (arr === null) { lb.innerHTML = '<li><span>telegraph line is down</span><span>&mdash;</span></li>'; return; }
-  if (!arr.length) { lb.innerHTML = '<li><span>no names on the wire yet</span><span>&mdash;</span></li>'; return; }
+  if (arr === null) { lb.innerHTML = '<li><span>telegraph line is down</span><span>-</span></li>'; return; }
+  if (!arr.length) { lb.innerHTML = '<li><span>no names on the wire yet</span><span>-</span></li>'; return; }
   var out = '';
   for (var i = 0; i < arr.length; i++) {
     var nm = String(arr[i].n || '?').slice(0, 12).replace(/[<>&]/g, '');
@@ -1153,7 +1153,7 @@ function fire(cx, cy) {
       if (beast.hp <= 0) {
         bpay += beast.def.pay;
         beast.state = 'dying'; beast.vy = 2.5;
-        banner('BEAST DOWN — +$' + beast.def.pay);
+        banner('BEAST DOWN · +$' + beast.def.pay);
         roar(beast.ty);
       }
       bounty += bpay; updateHUD();
