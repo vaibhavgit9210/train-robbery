@@ -1,6 +1,9 @@
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#1a120c">
 <title>The Iron Horse Hold-Up</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23060a13'/%3E%3Ctext x='32' y='46' font-size='38' text-anchor='middle'%3E%F0%9F%A4%A0%3C/text%3E%3C/svg%3E">
 <meta property="og:title" content="The Iron Horse Hold-Up">
 <meta property="og:description" content="A 3D wild-west shooting gallery in one HTML file — defend the gold train from the outlaw gang. No libraries, no build step, just WebGL.">
 <meta property="og:image" content="https://vaibhavgit9210.github.io/train-robbery/preview.png">
@@ -8,28 +11,31 @@
 <meta property="og:type" content="website">
 <meta name="twitter:card" content="summary_large_image">
 <style>
-  html, body { height: 100%; margin: 0; background: #1a120c; overflow: hidden; }
+  html, body { height: 100%; margin: 0; background: #1a120c; overflow: hidden; -webkit-tap-highlight-color: transparent; }
   canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; cursor: none; }
   .vignette {
     position: fixed; inset: 0; pointer-events: none;
     background: radial-gradient(ellipse at 50% 45%, transparent 55%, rgba(26, 14, 6, 0.55) 100%);
   }
   .titles {
-    position: fixed; left: 0; right: 0; top: 4.5vh; text-align: center; pointer-events: none;
+    position: fixed; left: 0; right: 0; top: max(4.5vh, env(safe-area-inset-top)); text-align: center; pointer-events: none;
+    padding: 0 200px;
     color: #F3E3C3; font-family: 'Iowan Old Style', 'Palatino', 'Palatino Linotype', Georgia, serif;
     text-shadow: 0 1px 8px rgba(30, 12, 2, 0.8);
   }
+  .titles > * { text-wrap: balance; }   /* when it wraps beside the bounty: even lines, never "HOLD-" then "UP" */
   .titles .eyebrow { font-size: 11px; letter-spacing: 0.42em; opacity: 0.75; text-transform: uppercase; }
   .titles h1 { margin: 10px 0 8px; font-size: clamp(22px, 3.6vw, 40px); font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; }
   .titles .sub { font-size: 13px; font-style: italic; letter-spacing: 0.08em; opacity: 0.85; }
   .rule { width: 120px; margin: 10px auto 0; border: 0; border-top: 1px solid rgba(243, 227, 195, 0.4); }
   .hint {
-    position: fixed; right: 18px; bottom: 14px; pointer-events: none;
+    position: fixed; right: max(18px, env(safe-area-inset-right)); bottom: max(14px, env(safe-area-inset-bottom)); pointer-events: none;
     color: rgba(243, 227, 195, 0.6); font-family: Georgia, serif; font-style: italic; font-size: 12px;
     letter-spacing: 0.06em; text-shadow: 0 1px 4px rgba(30, 12, 2, 0.8);
+    max-width: calc(50vw - 90px); text-align: right;   /* wraps before it reaches the ammo row in the middle */
   }
   .bounty {
-    position: fixed; top: 16px; right: 16px; pointer-events: none; text-align: center;
+    position: fixed; top: max(16px, env(safe-area-inset-top)); right: max(16px, env(safe-area-inset-right)); pointer-events: none; text-align: center;
     color: #F3E3C3; font-family: 'Iowan Old Style', 'Palatino', Georgia, serif;
     border: 3px double rgba(243, 227, 195, 0.55); border-radius: 3px;
     padding: 8px 16px 9px; background: rgba(30, 15, 5, 0.35); transform: rotate(1.2deg);
@@ -51,7 +57,7 @@
   .bounty .gold { font-size: 12px; letter-spacing: 0.2em; margin-top: 3px; color: #e8c24a; }
   .bounty .gold .lost { opacity: 0.25; }
   #ammo {
-    position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%);
+    position: fixed; left: 50%; bottom: max(16px, env(safe-area-inset-bottom)); transform: translateX(-50%);
     display: flex; gap: 6px; align-items: center; pointer-events: none;
     color: rgba(243, 227, 195, 0.85); font-family: Georgia, serif; font-style: italic; font-size: 12px;
     text-shadow: 0 1px 4px rgba(30, 12, 2, 0.8);
@@ -62,7 +68,8 @@
   #ammo.reloading i { animation: relo 0.45s linear infinite alternate; }
   @keyframes relo { from { opacity: 0.25; } to { opacity: 0.8; } }
   #over { position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
-          background: rgba(15, 8, 3, 0.55); z-index: 5; }
+          background: rgba(15, 8, 3, 0.55); z-index: 5;
+          -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
   .poster {
     background: #20140b; border: 3px double rgba(243, 227, 195, 0.6); border-radius: 3px;
     padding: 22px 32px 24px; text-align: center; color: #F3E3C3; max-width: 340px;
@@ -74,14 +81,20 @@
   .poster .p-big { font-size: 34px; font-weight: 700; color: #e8c24a; margin: 6px 0 2px; }
   .poster .p-sm { font-size: 11px; font-style: italic; opacity: 0.8; }
   #nmRow { display: flex; gap: 8px; justify-content: center; margin: 12px 0 4px; }
-  #nm { background: #2e1e10; border: 1px solid rgba(243, 227, 195, 0.4); color: #F3E3C3;
-        padding: 7px 9px; width: 130px; text-transform: uppercase; font-family: inherit;
-        font-size: 13px; letter-spacing: 0.1em; }
-  .btn { background: #6e1f14; color: #F3E3C3; border: 1px solid rgba(243, 227, 195, 0.5);
-         padding: 8px 16px; cursor: pointer; font-family: inherit; font-size: 12px;
-         letter-spacing: 0.14em; text-transform: uppercase; }
+  #nm { background: #2e1e10; border: 0; border-radius: 10px; color: #F3E3C3;
+        padding: 8px 12px; width: 130px; text-transform: uppercase; font-family: inherit;
+        font-size: 13px; letter-spacing: 0.1em; outline: none;
+        box-shadow: inset 0 0 0 1px rgba(243, 227, 195, 0.35); transition: box-shadow 0.15s ease-out; }
+  #nm:focus { box-shadow: inset 0 0 0 1px #e8c24a, 0 0 0 4px rgba(232, 194, 74, 0.2); }
+  .btn { background: #6e1f14; color: #F3E3C3; border: 0; border-radius: 999px;
+         padding: 9px 18px; cursor: pointer; font-family: inherit; font-size: 12px;
+         letter-spacing: 0.14em; text-transform: uppercase;
+         box-shadow: inset 0 0.5px 0 rgba(255, 235, 200, 0.35), inset 0 0 0 1px rgba(243, 227, 195, 0.32), 0 4px 14px rgba(110, 31, 20, 0.45);
+         transition: background-color 0.15s ease-out, transform 0.15s ease-out; }
   .btn:hover { background: #86281a; }
-  .btn:disabled { opacity: 0.5; cursor: default; }
+  .btn:active { transform: scale(0.97); }
+  .btn:focus-visible { outline: 2px solid #e8c24a; outline-offset: 2px; }
+  .btn:disabled { opacity: 0.5; cursor: default; transform: none; }
   #lbTitle { font-size: 10px; letter-spacing: 0.28em; margin-top: 12px; opacity: 0.75; }
   #lb { list-style: none; padding: 0; margin: 8px 0 12px; font-size: 13px; min-height: 30px; }
   #lb li { display: flex; justify-content: space-between; gap: 24px; padding: 2px 6px;
@@ -102,17 +115,29 @@
                    12% { opacity: 1; transform: translateX(-50%) scale(1); }
                    78% { opacity: 1; } 100% { opacity: 0; } }
   @media (max-width: 700px) {
-    .titles { top: 1.6vh; }
+    .titles { top: max(1.6vh, env(safe-area-inset-top)); padding: 0 12px; }
     .titles .eyebrow, .titles .sub, .rule { display: none; }
     .titles h1 { font-size: 15px; letter-spacing: 0.12em; margin: 4px 0; }
-    .bounty { top: 8px; right: 8px; padding: 5px 10px 6px; }
+    /* below the title line, so the stamp never covers it */
+    .bounty { top: calc(max(1.6vh, env(safe-area-inset-top)) + 36px); right: max(8px, env(safe-area-inset-right)); padding: 5px 10px 6px; }
     .bounty .b-val { font-size: 18px; margin: 1px 0; }
     .bounty .b-label { font-size: 7px; }
     .hint { display: none; }
-    #ammo { bottom: 10px; }
+    #ammo { bottom: max(10px, env(safe-area-inset-bottom)); }
+    #nm { font-size: 16px; width: 168px; }   /* 16px or more, so iOS doesn't zoom in on focus */
     .poster { max-width: 86vw; padding: 16px 18px 18px; }
     .poster h2 { font-size: 20px; }
     #xh { display: none; }
+  }
+  /* phones held sideways: the compact title the portrait layout uses, so the scene keeps the screen */
+  @media (max-height: 500px) and (min-width: 701px) {
+    .titles { top: max(1.6vh, env(safe-area-inset-top)); }
+    .titles .eyebrow, .titles .sub, .rule { display: none; }
+    .titles h1 { font-size: 15px; letter-spacing: 0.12em; margin: 4px 0; }
+  }
+  /* Reduce Transparency (System Settings > Accessibility > Display): no blur behind the poster */
+  @media (prefers-reduced-transparency: reduce) {
+    #over { background: rgba(15, 8, 3, 0.78); -webkit-backdrop-filter: none; backdrop-filter: none; }
   }
 </style>
 
@@ -1450,5 +1475,20 @@ function frame(ms) {
 updateHUD(); goldHUD(); ammoHUD();
 requestAnimationFrame(frame);
 
+})();
+</script>
+
+<script>
+/* anonymous visit beacon — counts loads + presence heartbeats, no cookies */
+(function(){
+  if (location.protocol === "file:" || location.hostname === "localhost") return;
+  var EP = "https://site-analytics.vaibhavpro9210.workers.dev/ping";
+  var sid = sessionStorage.getItem("va_sid");
+  if (!sid) { sid = Math.random().toString(36).slice(2) + Date.now().toString(36); sessionStorage.setItem("va_sid", sid); }
+  function send(kind){
+    try { navigator.sendBeacon(EP, new Blob([JSON.stringify({sid:sid, page:location.pathname, kind:kind})], {type:"text/plain"})); } catch(e){}
+  }
+  send("load");
+  setInterval(function(){ if (document.visibilityState === "visible") send("beat"); }, 60000);
 })();
 </script>
